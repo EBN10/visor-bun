@@ -87,6 +87,8 @@ const data = {
   ],
 }
 
+import { SidebarThemeToggle } from "~/components/side/sidebar-theme-toggle"
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar variant="inset" {...props}>
@@ -112,6 +114,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
+         <SidebarThemeToggle />
         <NavUser />
       </SidebarFooter>
     </Sidebar>

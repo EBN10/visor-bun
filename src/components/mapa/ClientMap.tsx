@@ -12,7 +12,6 @@ import {
 import { WMSTileLayer } from "react-leaflet"
 import { useQuery } from "@tanstack/react-query"
 import { fetchJson, qk } from "~/lib/api"
-import { useEventHandlers, useLeafletContext } from "@react-leaflet/core"
 import L from "leaflet"
 import type {
   Map as LeafletMap,
@@ -21,6 +20,7 @@ import type {
 } from "leaflet"
 import type { FeatureCollection } from "geojson"
 import { useLayers } from "~/components/layers/provider"
+import type { VectorConfig, WmsConfig, XyzConfig } from "~/server/db/schema"
 
 // Fix Leaflet default icon issue
 // See: https://github.com/Leaflet/Leaflet/issues/4968
@@ -53,7 +53,6 @@ interface MinimapBoundsProps {
 
 function MinimapBounds({ parentMap, zoom }: MinimapBoundsProps) {
   const minimap = useMap()
-  const context = useLeafletContext()
 
   const onClick = useCallback(
     (e: LeafletEvent & { latlng: L.LatLng }) => {
@@ -69,11 +68,15 @@ function MinimapBounds({ parentMap, zoom }: MinimapBoundsProps) {
     minimap.setView(parentMap.getCenter(), zoom)
   }, [minimap, parentMap, zoom])
 
-  const handlers = useMemo(
-    () => ({ move: onChange, zoom: onChange }),
-    [onChange],
-  )
-  useEventHandlers({ instance: parentMap, context }, handlers)
+  // Listen to parent map events
+  useEffect(() => {
+    parentMap.on("move", onChange)
+    parentMap.on("zoom", onChange)
+    return () => {
+      parentMap.off("move", onChange)
+      parentMap.off("zoom", onChange)
+    }
+  }, [parentMap, onChange])
 
   return <Rectangle bounds={bounds} pathOptions={BOUNDS_STYLE} />
 }
@@ -117,6 +120,29 @@ function MinimapControl({ position, zoom }: MinimapControlProps) {
 
 // Helpers
 
+/**
+ * Expands bounds by a percentage (0.5 = 50% padding on each side)
+ * This preloads data beyond the visible viewport
+ */
+function padBounds(b: LatLngBounds, padding: number = 0.5): LatLngBounds {
+  const sw = b.getSouthWest()
+  const ne = b.getNorthEast()
+  
+  const latDiff = ne.lat - sw.lat
+  const lngDiff = ne.lng - sw.lng
+  
+  const paddedSw = L.latLng(
+    sw.lat - latDiff * padding,
+    sw.lng - lngDiff * padding
+  )
+  const paddedNe = L.latLng(
+    ne.lat + latDiff * padding,
+    ne.lng + lngDiff * padding
+  )
+  
+  return L.latLngBounds(paddedSw, paddedNe)
+}
+
 function boundsToBboxParam(b: LatLngBounds) {
   const sw = b.getSouthWest()
   const ne = b.getNorthEast()
@@ -147,7 +173,9 @@ function useMapViewport() {
 
 function VectorLayer({ id, color, popupProps }: { id: string; color?: string; popupProps?: string[] }) {
   const { bounds, zoom } = useMapViewport()
-  const bbox = boundsToBboxParam(bounds)
+  // Pad bounds by 50% to preload data beyond visible area
+  const paddedBounds = padBounds(bounds, 0.5)
+  const bbox = boundsToBboxParam(paddedBounds)
 
   const { data } = useQuery({
     queryKey: qk.vectorLayer(id, bbox, zoom),
@@ -161,9 +189,12 @@ function VectorLayer({ id, color, popupProps }: { id: string; color?: string; po
 
   if (!data) return null
 
+  // Use bbox in key to force re-render when viewport changes
+  const geoJsonKey = `${id}-${bbox}`
+
  return (
   <GeoJSON
-    key={id}
+    key={geoJsonKey}
     data={data}
     style={() => ({
       color: color ?? "#0066cc",
@@ -245,7 +276,7 @@ function LayerRenderer() {
           )
         }
         if (m.kind === "wms") {
-          const cfg = m.config!
+          const cfg = m.config as WmsConfig
           return (
             <WmsLayer
               key={m.id}
@@ -258,7 +289,7 @@ function LayerRenderer() {
           )
         }
         if (m.kind === "xyz") {
-          const cfg = m.config!
+          const cfg = m.config as XyzConfig
           return (
             <XyzLayer key={m.id} url={cfg.url} attribution={cfg.attribution} />
           )

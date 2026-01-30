@@ -16,8 +16,9 @@ function parseBbox(bbox: string | null) {
 
 export async function GET(
   req: Request,
-  ctx: { params: { id: string } },
+  ctx: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await ctx.params
   const { searchParams } = new URL(req.url)
   const bboxParam = searchParams.get("bbox")
   const zParam = Number(searchParams.get("z") ?? "0")
@@ -26,7 +27,7 @@ export async function GET(
   const [layer] = await db
     .select()
     .from(layers)
-    .where(eq(layers.id, ctx.params.id))
+    .where(eq(layers.id, id))
     .limit(1)
 
   if (!layer) return new NextResponse("Layer not found", { status: 404 })

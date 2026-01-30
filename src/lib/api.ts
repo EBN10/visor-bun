@@ -6,7 +6,7 @@ export async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Prom
   if (!res.ok) {
     const text = await res.text().catch(() => "")
     const err = new Error(`HTTP ${res.status} ${res.statusText}: ${text}`)
-    // @ts-expect-error attach
+
     ;(err as any).status = res.status
     throw err
   }

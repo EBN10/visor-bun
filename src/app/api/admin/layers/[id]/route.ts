@@ -3,8 +3,8 @@ import { db } from "~/server/db"
 import { layers, type LayerConfig } from "~/server/db/schema"
 import { eq } from "drizzle-orm"
 
-export async function PUT(req: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id
+export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params
   const body = await req.json()
   const { name, groupId, order, defaultVisible, config } = body ?? {}
 
@@ -21,8 +21,8 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
   return NextResponse.json(row)
 }
 
-export async function DELETE(_: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id
+export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params
   await db.delete(layers).where(eq(layers.id, id))
   return NextResponse.json({ ok: true })
 }
