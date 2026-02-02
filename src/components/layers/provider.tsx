@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react"
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import type { LayerConfig } from "~/server/db/schema"
 import { fetchJson, qk } from "~/lib/api"
@@ -100,18 +100,22 @@ export function LayersProvider(props: { children: React.ReactNode }) {
     return built
   }, [catalogQuery.data])
 
+  // Ref to track if we've already initialized defaults (only once)
+  const initializedRef = useRef(false)
+
   // initialize visible defaults when data arrives the first time
   useEffect(() => {
     if (!catalogQuery.data?.nodes) return
-    // only initialize once when currently empty
-    if (visibleLayerIds.size === 0) {
-      const vis = new Set<string>()
-      for (const n of catalogQuery.data.nodes) {
-        if (n.type === "layer" && n.defaultVisible) vis.add(n.id)
-      }
-      setVisibleLayerIds(vis)
+    // only initialize ONCE, not every time the set becomes empty
+    if (initializedRef.current) return
+    initializedRef.current = true
+    
+    const vis = new Set<string>()
+    for (const n of catalogQuery.data.nodes) {
+      if (n.type === "layer" && n.defaultVisible) vis.add(n.id)
     }
-  }, [catalogQuery.data, visibleLayerIds.size])
+    setVisibleLayerIds(vis)
+  }, [catalogQuery.data])
 
   const setVisibleFromChecked = useCallback(
     (checkedIds: string[]) => {
