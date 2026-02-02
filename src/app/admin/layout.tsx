@@ -9,12 +9,19 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "~/components/ui/breadcrumb"
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const { userId } = await auth()
+  
+  if (!userId) {
+    redirect("/admin/sign-in")
+  }
   return (
     <SidebarProvider>
       <AppSidebar />

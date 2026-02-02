@@ -1,6 +1,22 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default clerkMiddleware();
+const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
+const isSignInRoute = createRouteMatcher(["/admin/sign-in(.*)"]);
+const isAdminApiRoute = createRouteMatcher(["/api/admin(.*)"]);
+
+export default clerkMiddleware(async (auth, request) => {
+  // Don't protect the sign-in page itself
+  if (isSignInRoute(request)) {
+    return;
+  }
+  
+  // Protect admin routes and admin API routes
+  if (isAdminRoute(request) || isAdminApiRoute(request)) {
+    await auth.protect({
+      unauthenticatedUrl: new URL("/admin/sign-in", request.url).toString(),
+    });
+  }
+});
 
 export const config = {
   matcher: [

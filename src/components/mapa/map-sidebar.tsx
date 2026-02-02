@@ -6,7 +6,6 @@ import {
   Map as MapIcon,
 } from "lucide-react"
 
-import { NavUser } from "~/components/side/nav-user"
 import {
   Sidebar,
   SidebarContent,
@@ -19,6 +18,7 @@ import {
 } from "~/components/ui/sidebar"
 import ArbolCapas from "~/components/comp-598"
 import Image from "next/image"
+import { ThemeToggle } from "~/components/ui/theme-toggle"
 
 export function MapSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
@@ -46,8 +46,12 @@ export function MapSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </div>
       </SidebarContent>
       <SidebarFooter>
-        <NavUser />
+        <div className="flex items-center justify-between px-2 py-1">
+          <span className="text-xs text-muted-foreground">Visor SDE</span>
+          <ThemeToggle />
+        </div>
       </SidebarFooter>
     </Sidebar>
   )
 }
+
