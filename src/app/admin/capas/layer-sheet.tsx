@@ -69,7 +69,7 @@ function SheetSelect({
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           className={cn(
-            "relative z-[100] max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md",
+            "relative z-[1002] max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -121,6 +121,7 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
   const [defaultVisible, setDefaultVisible] = useState(false)
   const [popupProps, setPopupProps] = useState<string[]>([])
   const [newPropValue, setNewPropValue] = useState("")
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   useEffect(() => {
     if (layer) {
@@ -219,6 +220,7 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
   if (!layer) return null
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-md flex flex-col p-0">
         <SheetHeader className="px-4 py-3 border-b">
@@ -390,30 +392,14 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
         </div>
 
         <div className="px-4 py-3 border-t bg-muted/30 flex items-center gap-2">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                <Trash2 className="size-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>¿Eliminar capa?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Se eliminará permanentemente "{layer.name}". Esta acción no se puede deshacer.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handleDelete}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Eliminar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
 
           <div className="flex-1" />
           
@@ -427,5 +413,26 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
         </div>
       </SheetContent>
     </Sheet>
+
+    <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar capa?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Se eliminará permanentemente "{layer.name}". Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleDelete}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Eliminar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

@@ -1,16 +1,26 @@
 "use client"
 
 import * as React from "react"
-import { useState, useMemo, useEffect, useCallback, useRef } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
-  syncDataLoaderFeature,
-  selectionFeature,
-  hotkeysCoreFeature,
-  dragAndDropFeature,
-  isOrderedDragTarget,
-} from "@headless-tree/core"
-import { useTree } from "@headless-tree/react"
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
+  MeasuringStrategy,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { fetchJson, qk } from "~/lib/api"
 import {
   Folder,
@@ -22,14 +32,12 @@ import {
   GripVertical,
   Plus,
   ChevronRight,
-  ChevronDown,
   Pencil,
   AlertCircle,
   Undo2,
   Save,
 } from "lucide-react"
 import { cn } from "~/lib/utils"
-import { Tree, TreeItem, TreeDragLine } from "~/components/tree"
 import { Button } from "~/components/ui/button"
 import { Badge } from "~/components/ui/badge"
 import { toast } from "sonner"
@@ -37,8 +45,10 @@ import { LayerSheet } from "./layer-sheet"
 import { GroupSheet } from "./group-sheet"
 import { motion, AnimatePresence } from "framer-motion"
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
 const ROOT_ID = "__root__"
-const indent = 20
+const INDENT_PX = 20
 
 type TreeItemType = "group" | "layer"
 
@@ -55,12 +65,26 @@ interface TreeItemData {
   config?: any
 }
 
+interface FlatItem {
+  id: string
+  data: TreeItemData
+  parentId: string
+  depth: number
+}
+
 interface PendingChange {
   itemId: string
   itemType: TreeItemType
   newParentId: string | null
   newOrder: number
 }
+
+type DropIntent =
+  | { type: "reorder"; targetId: string; position: "before" | "after" }
+  | { type: "nest"; targetGroupId: string }
+  | null
+
+// ─── Data helpers ───────────────────────────────────────────────────────────
 
 function buildTreeItems(
   groups: any[],
@@ -135,46 +159,94 @@ function applyPendingChanges(
   pendingChanges: PendingChange[]
 ): Record<string, TreeItemData> {
   if (pendingChanges.length === 0) return baseItems
-  
-  const items = JSON.parse(JSON.stringify(baseItems)) as Record<string, TreeItemData>
-  
+
+  const items = JSON.parse(JSON.stringify(baseItems)) as Record<
+    string,
+    TreeItemData
+  >
+
   for (const change of pendingChanges) {
     const item = items[change.itemId]
     if (!item) continue
-    
+
     let currentParentId: string | null = null
     if (item.type === "layer") {
       currentParentId = item.groupId ?? null
     } else {
       currentParentId = item.parentId ?? null
     }
-    
+
     const currentParent = items[currentParentId ?? ROOT_ID]
     if (currentParent?.children) {
-      currentParent.children = currentParent.children.filter(id => id !== change.itemId)
+      currentParent.children = currentParent.children.filter(
+        (id) => id !== change.itemId
+      )
     }
   }
-  
+
   for (const change of pendingChanges) {
     const item = items[change.itemId]
     if (!item) continue
-    
+
     const newParentId = change.newParentId ?? ROOT_ID
     const newParent = items[newParentId]
-    
+
     if (item.type === "layer") {
       item.groupId = change.newParentId ?? undefined
     } else {
       item.parentId = change.newParentId
     }
     item.order = change.newOrder
-    
+
     if (newParent?.children) {
-      newParent.children.splice(change.newOrder, 0, change.itemId)
+      const insertIdx = Math.min(change.newOrder, newParent.children.length)
+      newParent.children.splice(insertIdx, 0, change.itemId)
     }
   }
-  
+
   return items
+}
+
+/** Flatten tree respecting expanded state, skipping root  */
+function flattenTree(
+  items: Record<string, TreeItemData>,
+  expandedIds: Set<string>
+): FlatItem[] {
+  const result: FlatItem[] = []
+
+  function walk(nodeId: string, depth: number, parentId: string) {
+    const node = items[nodeId]
+    if (!node) return
+    if (nodeId !== ROOT_ID) {
+      result.push({ id: nodeId, data: node, parentId, depth })
+    }
+    if (node.type === "group" && (nodeId === ROOT_ID || expandedIds.has(nodeId))) {
+      for (const childId of node.children ?? []) {
+        walk(childId, nodeId === ROOT_ID ? 0 : depth + 1, nodeId)
+      }
+    }
+  }
+
+  walk(ROOT_ID, 0, ROOT_ID)
+  return result
+}
+
+/** Get all descendant ids (recursive) */
+function getDescendantIds(
+  items: Record<string, TreeItemData>,
+  nodeId: string
+): string[] {
+  const result: string[] = []
+  const stack = [...(items[nodeId]?.children ?? [])]
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    result.push(id)
+    const node = items[id]
+    if (node?.children) {
+      stack.push(...node.children)
+    }
+  }
+  return result
 }
 
 function getLayerIcon(kind: string) {
@@ -190,221 +262,230 @@ function getLayerIcon(kind: string) {
   }
 }
 
-const itemVariants = {
-  initial: { opacity: 0, y: -10 },
-  animate: { 
-    opacity: 1, 
-    y: 0,
-    transition: { duration: 0.2 }
-  },
-  exit: { 
-    opacity: 0, 
-    y: 10,
-    transition: { duration: 0.15 }
-  },
+// ─── Sortable Item ──────────────────────────────────────────────────────────
+
+interface SortableTreeItemProps {
+  flatItem: FlatItem
+  isExpanded: boolean
+  onToggle: (id: string) => void
+  onEditClick: (item: TreeItemData) => void
+  dropIntent: DropIntent
+  isDragging: boolean
 }
 
-function LayerGroupTreeView({
-  treeItems,
-  onDrop,
+function SortableTreeItem({
+  flatItem,
+  isExpanded,
+  onToggle,
   onEditClick,
-  expandedItemsRef,
-}: {
-  treeItems: Record<string, TreeItemData>
-  onDrop: (items: any[], target: any) => void
-  onEditClick: (item: TreeItemData) => void
-  expandedItemsRef: React.MutableRefObject<string[]>
-}) {
-  const tree = useTree<TreeItemData>({
-    initialState: {
-      expandedItems: expandedItemsRef.current,
-    },
-    indent,
-    rootItemId: ROOT_ID,
-    getItemName: (item) => item.getItemData()?.name ?? "",
-    isItemFolder: (item) => {
-      const data = item.getItemData()
-      return data?.type === "group"
-    },
-    canReorder: true,
-    onDrop: (items, target) => {
-      expandedItemsRef.current = tree.getState().expandedItems ?? [ROOT_ID]
-      onDrop(items, target)
-    },
-    dataLoader: {
-      getItem: (itemId: string) => treeItems[itemId] ?? { id: itemId, name: "", type: "group" as const, children: [] },
-      getChildren: (itemId: string) => treeItems[itemId]?.children ?? [],
-    },
-    features: [
-      syncDataLoaderFeature,
-      selectionFeature,
-      hotkeysCoreFeature,
-      dragAndDropFeature,
-    ],
-  })
+  dropIntent,
+  isDragging,
+}: SortableTreeItemProps) {
+  const { id, data, depth } = flatItem
+  const isGroup = data.type === "group"
 
-  useEffect(() => {
-    const state = tree.getState()
-    if (state.expandedItems) {
-      expandedItemsRef.current = state.expandedItems
-    }
-  })
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isSorting,
+  } = useSortable({ id })
 
-  useEffect(() => {
-    try {
-      tree.getItemInstance(ROOT_ID)?.expand()
-    } catch {}
-  }, [])
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(
+      transform ? { ...transform, scaleX: 1, scaleY: 1 } : null
+    ),
+    transition,
+    opacity: isDragging ? 0.35 : 1,
+    position: "relative" as const,
+    zIndex: isDragging ? 0 : 1,
+  }
 
-  const items = tree.getItems()
+  // Determine indicator style from dropIntent
+  const showBeforeLine =
+    dropIntent?.type === "reorder" &&
+    dropIntent.targetId === id &&
+    dropIntent.position === "before"
+  const showAfterLine =
+    dropIntent?.type === "reorder" &&
+    dropIntent.targetId === id &&
+    dropIntent.position === "after"
+  const showNestHighlight =
+    dropIntent?.type === "nest" && dropIntent.targetGroupId === id
 
   return (
-    <Tree indent={indent} tree={tree} className="relative">
-      <AnimatePresence mode="popLayout">
-        {items.map((item) => {
-          const itemData = item.getItemData()
-          if (!itemData || itemData.id === ROOT_ID) return null
+    <div ref={setNodeRef} style={style} className="relative">
+      {/* Before insertion indicator */}
+      {showBeforeLine && (
+        <div
+          className="absolute -top-[1px] left-0 right-0 z-30 flex items-center pointer-events-none"
+          style={{ marginLeft: `${depth * INDENT_PX + 8}px` }}
+        >
+          <div className="size-2 rounded-full border-2 border-primary bg-background -ml-1" />
+          <div className="flex-1 h-0.5 bg-primary" />
+        </div>
+      )}
 
-          const isGroup = itemData.type === "group"
-          const isExpanded = item.isExpanded()
-          const level = item.getItemMeta().level
+      <div
+        role="treeitem"
+        tabIndex={0}
+        className={cn(
+          "flex items-center gap-2 py-1.5 px-2 rounded-md transition-all duration-200 cursor-default select-none",
+          "hover:bg-white dark:hover:bg-muted/80",
+          showNestHighlight &&
+            "bg-primary/10 ring-2 ring-primary/40 scale-[1.01] shadow-sm",
+          isDragging && "opacity-35"
+        )}
+        style={{
+          marginLeft: `${depth * INDENT_PX}px`,
+        }}
+      >
+        {/* Drag handle */}
+        <div
+          className="cursor-grab active:cursor-grabbing flex-shrink-0 p-0.5 rounded hover:bg-muted touch-none"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4 text-muted-foreground/50" />
+        </div>
 
-          return (
+        {/* Chevron for groups */}
+        {isGroup ? (
+          <div
+            role="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggle(id)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                e.stopPropagation()
+                onToggle(id)
+              }
+            }}
+            className="p-0.5 hover:bg-muted rounded flex-shrink-0 transition-colors cursor-pointer"
+          >
             <motion.div
-              key={item.getId()}
-              layout
-              variants={itemVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={{
-                layout: { type: "spring", stiffness: 500, damping: 35 }
-              }}
+              animate={{ rotate: isExpanded ? 90 : 0 }}
+              transition={{ duration: 0.15 }}
             >
-              <TreeItem
-                item={item}
-                className="group/item"
-                asChild
-              >
-                <div
-                  role="treeitem"
-                  tabIndex={0}
-                  className={cn(
-                    "flex items-center gap-2 py-1.5 px-2 rounded-md transition-colors cursor-default",
-                    "hover:bg-white dark:hover:bg-muted/80",
-                    item.isSelected() && "bg-white dark:bg-muted shadow-sm",
-                    item.isDragTarget() && "bg-primary/10 ring-2 ring-primary/40 scale-[1.02]"
-                  )}
-                  style={{
-                    marginLeft: `${level * indent}px`,
-                  }}
-                >
-                  {/* Drag handle */}
-                  <div 
-                    className="cursor-grab active:cursor-grabbing flex-shrink-0 p-0.5 rounded hover:bg-muted"
-                  >
-                    <GripVertical className="size-4 text-muted-foreground/50" />
-                  </div>
-
-                  {/* Chevron for groups - using div instead of button */}
-                  {isGroup ? (
-                    <div
-                      role="button"
-                      tabIndex={-1}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        isExpanded ? item.collapse() : item.expand()
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          isExpanded ? item.collapse() : item.expand()
-                        }
-                      }}
-                      className="p-0.5 hover:bg-muted rounded flex-shrink-0 transition-colors cursor-pointer"
-                    >
-                      <motion.div
-                        animate={{ rotate: isExpanded ? 90 : 0 }}
-                        transition={{ duration: 0.15 }}
-                      >
-                        <ChevronRight className="size-4 text-muted-foreground" />
-                      </motion.div>
-                    </div>
-                  ) : (
-                    <div className="w-5 flex-shrink-0" />
-                  )}
-
-                  {/* Icon */}
-                  <div className="flex-shrink-0">
-                    {isGroup ? (
-                      isExpanded ? (
-                        <FolderOpen className="size-4 text-amber-500" />
-                      ) : (
-                        <Folder className="size-4 text-amber-500" />
-                      )
-                    ) : (
-                      getLayerIcon(itemData.kind ?? "vector")
-                    )}
-                  </div>
-
-                  {/* Name */}
-                  <span 
-                    className={cn(
-                      "text-sm truncate",
-                      isGroup && "cursor-pointer font-medium"
-                    )}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (isGroup) {
-                        isExpanded ? item.collapse() : item.expand()
-                      }
-                    }}
-                  >
-                    {itemData.name}
-                  </span>
-
-                  {/* Badges for layers */}
-                  {!isGroup && (
-                    <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                      {itemData.defaultVisible && (
-                        <Eye className="size-3.5 text-green-500" />
-                      )}
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
-                        {itemData.kind}
-                      </Badge>
-                    </div>
-                  )}
-
-                  {/* Edit button - using div instead of Button */}
-                  <div
-                    role="button"
-                    tabIndex={-1}
-                    className="size-6 ml-1 opacity-0 group-hover/item:opacity-100 transition-opacity flex-shrink-0 flex items-center justify-center rounded hover:bg-muted cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onEditClick(itemData)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        onEditClick(itemData)
-                      }
-                    }}
-                  >
-                    <Pencil className="size-3" />
-                  </div>
-                </div>
-              </TreeItem>
+              <ChevronRight className="size-4 text-muted-foreground" />
             </motion.div>
-          )
-        })}
-      </AnimatePresence>
-      <TreeDragLine />
-    </Tree>
+          </div>
+        ) : (
+          <div className="w-5 flex-shrink-0" />
+        )}
+
+        {/* Icon */}
+        <div className="flex-shrink-0">
+          {isGroup ? (
+            isExpanded ? (
+              <FolderOpen className="size-4 text-amber-500" />
+            ) : (
+              <Folder className="size-4 text-amber-500" />
+            )
+          ) : (
+            getLayerIcon(data.kind ?? "vector")
+          )}
+        </div>
+
+        {/* Name */}
+        <span
+          className={cn(
+            "text-sm truncate flex-1",
+            isGroup && "cursor-pointer font-medium"
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isGroup) onToggle(id)
+          }}
+        >
+          {data.name}
+        </span>
+
+        {/* Badges for layers */}
+        {!isGroup && (
+          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+            {data.defaultVisible && (
+              <Eye className="size-3.5 text-green-500" />
+            )}
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 font-normal"
+            >
+              {data.kind}
+            </Badge>
+          </div>
+        )}
+
+        {/* Edit button */}
+        <div
+          role="button"
+          tabIndex={-1}
+          className="size-6 ml-1 opacity-0 group-hover/item:opacity-100 hover:!opacity-100 transition-opacity flex-shrink-0 flex items-center justify-center rounded hover:bg-muted cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation()
+            onEditClick(data)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              e.stopPropagation()
+              onEditClick(data)
+            }
+          }}
+        >
+          <Pencil className="size-3" />
+        </div>
+      </div>
+
+      {/* After insertion indicator */}
+      {showAfterLine && (
+        <div
+          className="absolute -bottom-[1px] left-0 right-0 z-30 flex items-center pointer-events-none"
+          style={{ marginLeft: `${depth * INDENT_PX + 8}px` }}
+        >
+          <div className="size-2 rounded-full border-2 border-primary bg-background -ml-1" />
+          <div className="flex-1 h-0.5 bg-primary" />
+        </div>
+      )}
+    </div>
   )
 }
+
+// ─── Drag Overlay ───────────────────────────────────────────────────────────
+
+function DragOverlayContent({ data }: { data: TreeItemData }) {
+  const isGroup = data.type === "group"
+
+  return (
+    <div className="flex items-center gap-2 py-1.5 px-3 rounded-md bg-background border shadow-lg shadow-black/10 dark:shadow-black/30 w-fit max-w-xs">
+      <GripVertical className="size-4 text-muted-foreground/50" />
+      <div className="flex-shrink-0">
+        {isGroup ? (
+          <Folder className="size-4 text-amber-500" />
+        ) : (
+          getLayerIcon(data.kind ?? "vector")
+        )}
+      </div>
+      <span className="text-sm font-medium truncate">{data.name}</span>
+      {!isGroup && (
+        <Badge
+          variant="outline"
+          className="text-[10px] px-1.5 py-0 font-normal"
+        >
+          {data.kind}
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+// ─── Main component ─────────────────────────────────────────────────────────
 
 export function LayerGroupTree() {
   const queryClient = useQueryClient()
@@ -414,8 +495,18 @@ export function LayerGroupTree() {
   const [isNewGroupSheetOpen, setIsNewGroupSheetOpen] = useState(false)
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
   const [isSaving, setIsSaving] = useState(false)
-  
-  const expandedItemsRef = useRef<string[]>([ROOT_ID])
+
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => {
+      const s = new Set<string>()
+      s.add(ROOT_ID)
+      return s
+    }
+  )
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [dropIntent, setDropIntent] = useState<DropIntent>(null)
+
+
 
   const groupsQuery = useQuery({
     queryKey: ["admin", "layer-groups"],
@@ -428,7 +519,11 @@ export function LayerGroupTree() {
   })
 
   const updateLayerMutation = useMutation({
-    mutationFn: async (data: { id: string; groupId: string; order: number }) => {
+    mutationFn: async (data: {
+      id: string
+      groupId: string
+      order: number
+    }) => {
       return fetchJson("/api/admin/layers", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -438,7 +533,11 @@ export function LayerGroupTree() {
   })
 
   const updateGroupMutation = useMutation({
-    mutationFn: async (data: { id: string; parentId: string | null; order: number }) => {
+    mutationFn: async (data: {
+      id: string
+      parentId: string | null
+      order: number
+    }) => {
       return fetchJson("/api/admin/layer-groups", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -449,7 +548,14 @@ export function LayerGroupTree() {
 
   const baseTreeItems = useMemo(() => {
     if (!groupsQuery.data || !layersQuery.data) {
-      return { [ROOT_ID]: { id: ROOT_ID, name: "Raíz", type: "group" as const, children: [] } }
+      return {
+        [ROOT_ID]: {
+          id: ROOT_ID,
+          name: "Raíz",
+          type: "group" as const,
+          children: [],
+        },
+      }
     }
     return buildTreeItems(groupsQuery.data, layersQuery.data)
   }, [groupsQuery.data, layersQuery.data])
@@ -458,76 +564,251 @@ export function LayerGroupTree() {
     return applyPendingChanges(baseTreeItems, pendingChanges)
   }, [baseTreeItems, pendingChanges])
 
-  const dataVersion = useMemo(
-    () => JSON.stringify([Object.keys(treeItems).sort(), pendingChanges.length]),
-    [treeItems, pendingChanges]
+  // Flatten tree for dnd-kit
+  const flatItems = useMemo(
+    () => flattenTree(treeItems, expandedIds),
+    [treeItems, expandedIds]
+  )
+  const flatItemIds = useMemo(() => flatItems.map((fi) => fi.id), [flatItems])
+  const flatItemMap = useMemo(() => {
+    const m: Record<string, FlatItem> = {}
+    for (const fi of flatItems) m[fi.id] = fi
+    return m
+  }, [flatItems])
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  // ─── DnD Sensors ──────────────────────────────────────────────────────
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
   )
 
-  const handleDrop = useCallback((items: any[], target: any) => {
-    const item = items[0]
-    if (!item) return
+  // ─── DnD handlers ────────────────────────────────────────────────────
 
-    const itemData = item.getItemData()
-    if (!itemData) return
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const id = String(event.active.id)
+      setActiveId(id)
 
-    const targetItem = target.item
-    const targetData = targetItem?.getItemData()
+      // Expand ancestry of dragged item to prevent layout jumps
+      const item = treeItems[id]
+      if (item?.type === "group") {
+        // Keep it expanded so children are visible
+        setExpandedIds((prev) => {
+          const next = new Set(prev)
+          next.add(id)
+          return next
+        })
+      }
+    },
+    [treeItems]
+  )
 
-    let newParentId: string | null = null
-    let newOrder = 0
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const { active, over } = event
+      if (!over || !active) {
+        setDropIntent(null)
+        return
+      }
 
-    if (isOrderedDragTarget(target)) {
-      newParentId = targetData?.id === ROOT_ID ? null : targetData?.id ?? null
-      newOrder = target.childIndex
-    } else if (targetData?.type === "group") {
-      newParentId = targetData.id === ROOT_ID ? null : targetData.id
-      newOrder = (targetData.children?.length ?? 0)
-    }
+      const activeItemId = String(active.id)
+      const overItemId = String(over.id)
 
-    if (itemData.type === "layer" && newParentId === null) {
-      toast.error("Las capas deben pertenecer a un grupo")
-      return
-    }
+      if (activeItemId === overItemId) {
+        setDropIntent(null)
+        return
+      }
 
-    // Get current position from base items (not pending changes)
-    const currentItem = baseTreeItems[itemData.id]
-    if (!currentItem) return
+      const overItem = treeItems[overItemId]
+      const activeItem = treeItems[activeItemId]
+      if (!overItem || !activeItem) {
+        setDropIntent(null)
+        return
+      }
 
-    // Determine current parent
-    let currentParentId: string | null = null
-    if (itemData.type === "layer") {
-      currentParentId = currentItem.groupId ?? null
-    } else {
-      currentParentId = currentItem.parentId ?? null
-    }
+      // Prevent dropping into own descendants
+      if (activeItem.type === "group") {
+        const descendants = getDescendantIds(treeItems, activeItemId)
+        if (descendants.includes(overItemId)) {
+          setDropIntent(null)
+          return
+        }
+      }
 
-    // Find current order (index in parent's children)
-    const currentParent = baseTreeItems[currentParentId ?? ROOT_ID]
-    const currentOrder = currentParent?.children?.indexOf(itemData.id) ?? 0
+      // Use pointer position relative to the over element to determine intent
+      const overRect = over.rect
+      if (!overRect) {
+        setDropIntent(null)
+        return
+      }
 
-    // Check if position actually changed
-    const parentChanged = newParentId !== currentParentId
-    const orderChanged = newOrder !== currentOrder
+      const pointerY = (event.activatorEvent as PointerEvent)?.clientY
+      const deltaY = event.delta?.y ?? 0
+      const currentPointerY = pointerY + deltaY
 
-    // If nothing changed, don't add pending change
-    if (!parentChanged && !orderChanged) {
-      return
-    }
+      const rectTop = overRect.top
+      const rectHeight = overRect.height
+      const relativeY = currentPointerY - rectTop
+      const fraction = relativeY / rectHeight
 
-    setPendingChanges(prev => {
-      const filtered = prev.filter(c => c.itemId !== itemData.id)
-      return [...filtered, {
-        itemId: itemData.id,
-        itemType: itemData.type,
-        newParentId,
-        newOrder,
-      }]
-    })
-  }, [baseTreeItems])
+      if (overItem.type === "group") {
+        // For groups: top 25% = before, middle 50% = nest into, bottom 25% = after
+        if (fraction < 0.25) {
+          setDropIntent({
+            type: "reorder",
+            targetId: overItemId,
+            position: "before",
+          })
+        } else if (fraction > 0.75) {
+          setDropIntent({
+            type: "reorder",
+            targetId: overItemId,
+            position: "after",
+          })
+        } else {
+          // Nest into this group
+          setDropIntent({ type: "nest", targetGroupId: overItemId })
+        }
+      } else {
+        // For layers: top 50% = before, bottom 50% = after
+        if (fraction < 0.5) {
+          setDropIntent({
+            type: "reorder",
+            targetId: overItemId,
+            position: "before",
+          })
+        } else {
+          setDropIntent({
+            type: "reorder",
+            targetId: overItemId,
+            position: "after",
+          })
+        }
+      }
+    },
+    [treeItems]
+  )
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active } = event
+      const localDropIntent = dropIntent
+
+      setActiveId(null)
+      setDropIntent(null)
+
+      if (!localDropIntent || !active) return
+
+      const activeItemId = String(active.id)
+      const activeItem = treeItems[activeItemId]
+      if (!activeItem) return
+
+      let newParentId: string | null = null
+      let newOrder = 0
+
+      if (localDropIntent.type === "nest") {
+        // Drop into a group
+        const targetGroup = treeItems[localDropIntent.targetGroupId]
+        if (!targetGroup) return
+
+        newParentId =
+          localDropIntent.targetGroupId === ROOT_ID
+            ? null
+            : localDropIntent.targetGroupId
+        newOrder = targetGroup.children?.length ?? 0
+
+        // Auto-expand the target group
+        setExpandedIds((prev) => {
+          const next = new Set(prev)
+          next.add(localDropIntent.targetGroupId)
+          return next
+        })
+      } else {
+        // Reorder: place before or after the target
+        const targetId = localDropIntent.targetId
+        const targetFlatItem = flatItemMap[targetId]
+        if (!targetFlatItem) return
+
+        const targetParentId = targetFlatItem.parentId
+        const parentItem = treeItems[targetParentId]
+        if (!parentItem?.children) return
+
+        // Filter out the active item from the parent's children to find clean index
+        const siblings = parentItem.children.filter(
+          (cid) => cid !== activeItemId
+        )
+        const targetIdx = siblings.indexOf(targetId)
+        if (targetIdx === -1) return
+
+        newParentId = targetParentId === ROOT_ID ? null : targetParentId
+        newOrder =
+          localDropIntent.position === "before" ? targetIdx : targetIdx + 1
+      }
+
+      // Layers must belong to a group
+      if (activeItem.type === "layer" && newParentId === null) {
+        toast.error("Las capas deben pertenecer a un grupo")
+        return
+      }
+
+      // Check if anything actually changed
+      const currentItem = baseTreeItems[activeItemId]
+      if (!currentItem) return
+
+      let currentParentId: string | null = null
+      if (activeItem.type === "layer") {
+        currentParentId = currentItem.groupId ?? null
+      } else {
+        currentParentId = currentItem.parentId ?? null
+      }
+
+      const currentParent = baseTreeItems[currentParentId ?? ROOT_ID]
+      const currentOrder =
+        currentParent?.children?.indexOf(activeItemId) ?? 0
+
+      const parentChanged = newParentId !== currentParentId
+      const orderChanged = newOrder !== currentOrder
+
+      if (!parentChanged && !orderChanged) return
+
+      setPendingChanges((prev) => {
+        const filtered = prev.filter((c) => c.itemId !== activeItemId)
+        return [
+          ...filtered,
+          {
+            itemId: activeItemId,
+            itemType: activeItem.type,
+            newParentId,
+            newOrder,
+          },
+        ]
+      })
+    },
+    [dropIntent, treeItems, flatItemMap, baseTreeItems]
+  )
+
+  const handleDragCancel = useCallback(() => {
+    setActiveId(null)
+    setDropIntent(null)
+  }, [])
+
+  // ─── Editing ──────────────────────────────────────────────────────────
 
   const handleEditClick = (itemData: TreeItemData) => {
     if (itemData.id === ROOT_ID) return
-    
+
     setSelectedItem(itemData)
     if (itemData.type === "layer") {
       setIsLayerSheetOpen(true)
@@ -566,12 +847,14 @@ export function LayerGroupTree() {
           })
         }
       }
-      
+
       setPendingChanges([])
       queryClient.invalidateQueries({ queryKey: ["admin", "layers"] })
       queryClient.invalidateQueries({ queryKey: ["admin", "layer-groups"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
-      toast.success(`${pendingChanges.length} cambio(s) guardado(s)`)
+      toast.success(
+        `${pendingChanges.length} cambio(s) guardado(s)`
+      )
     } catch (err: any) {
       toast.error(err.message || "Error al guardar cambios")
     } finally {
@@ -579,12 +862,15 @@ export function LayerGroupTree() {
     }
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────
+
   if (groupsQuery.isLoading || layersQuery.isLoading) {
     return <div className="p-4 text-muted-foreground">Cargando...</div>
   }
 
   const hasItems = Object.keys(treeItems).length > 1
   const hasPendingChanges = pendingChanges.length > 0
+  const activeData = activeId ? treeItems[activeId] : null
 
   return (
     <div className="flex flex-col h-full">
@@ -606,55 +892,91 @@ export function LayerGroupTree() {
       <div className="flex-1 border rounded-lg bg-muted/40 overflow-auto min-h-0">
         <div className="p-3">
           {hasItems ? (
-            <LayerGroupTreeView
-              key={dataVersion}
-              treeItems={treeItems}
-              onDrop={handleDrop}
-              onEditClick={handleEditClick}
-              expandedItemsRef={expandedItemsRef}
-            />
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+              measuring={{
+                droppable: { strategy: MeasuringStrategy.Always },
+              }}
+            >
+              <SortableContext
+                items={flatItemIds}
+                strategy={verticalListSortingStrategy}
+              >
+                <div role="tree" className="flex flex-col gap-0.5">
+                  {flatItems.map((flatItem) => (
+                    <div key={flatItem.id} className="group/item">
+                      <SortableTreeItem
+                        flatItem={flatItem}
+                        isExpanded={expandedIds.has(flatItem.id)}
+                        onToggle={toggleExpand}
+                        onEditClick={handleEditClick}
+                        dropIntent={dropIntent}
+                        isDragging={activeId === flatItem.id}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </SortableContext>
+
+              <DragOverlay dropAnimation={{
+                duration: 200,
+                easing: "cubic-bezier(0.18, 0.67, 0.6, 1.22)",
+              }}>
+                {activeData ? (
+                  <DragOverlayContent data={activeData} />
+                ) : null}
+              </DragOverlay>
+            </DndContext>
           ) : (
             <div className="text-center text-muted-foreground py-8">
               <p>No hay grupos ni capas.</p>
-              <p className="text-sm mt-2">Crea un grupo o importa capas desde QGIS para comenzar.</p>
+              <p className="text-sm mt-2">
+                Crea un grupo o importa capas desde QGIS para comenzar.
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Pending changes footer with slide-up animation */}
+      {/* Pending changes footer */}
       <AnimatePresence>
         {hasPendingChanges && (
           <motion.div
             initial={{ opacity: 0, y: 30, height: 0, marginTop: 0 }}
             animate={{ opacity: 1, y: 0, height: "auto", marginTop: 12 }}
             exit={{ opacity: 0, y: 30, height: 0, marginTop: 0 }}
-            transition={{ 
-              type: "spring", 
-              stiffness: 400, 
+            transition={{
+              type: "spring",
+              stiffness: 400,
               damping: 30,
-              opacity: { duration: 0.2 }
+              opacity: { duration: 0.2 },
             }}
             className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center justify-between overflow-hidden"
           >
             <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
               <AlertCircle className="size-4" />
               <span className="text-sm font-medium">
-                {pendingChanges.length} cambio{pendingChanges.length > 1 ? 's' : ''} sin guardar
+                {pendingChanges.length} cambio
+                {pendingChanges.length > 1 ? "s" : ""} sin guardar
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleDiscardChanges}
                 disabled={isSaving}
               >
                 <Undo2 className="mr-2 size-4" />
                 Descartar
               </Button>
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 onClick={handleSaveChanges}
                 disabled={isSaving}
               >
