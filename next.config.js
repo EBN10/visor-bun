@@ -5,6 +5,11 @@
 import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
-const config = {};
+const config = {
+  eslint: {
+    // Keep lint available via dedicated scripts, but don't block production builds.
+    ignoreDuringBuilds: true,
+  },
+};
 
 export default config;

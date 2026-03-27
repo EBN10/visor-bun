@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table"
 import { Badge } from "~/components/ui/badge"
@@ -36,6 +37,7 @@ interface Invitation {
 }
 
 export default function UsuariosPage() {
+  const queryClient = useQueryClient()
   const [users, setUsers] = useState<User[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(true)
@@ -73,6 +75,8 @@ export default function UsuariosPage() {
       setUsers(data.users)
       setCurrentUserId(data.currentUserId)
       setCurrentUserRole(data.currentUserRole)
+      // Keep dashboard user count in sync
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
     } catch (error) {
       toast.error("Error al cargar usuarios")
       console.error(error)
@@ -125,6 +129,7 @@ export default function UsuariosPage() {
       setInviteEmail("")
       setInviteRole("editor")
       setDialogOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       fetchInvitations()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al enviar invitación")
@@ -153,6 +158,7 @@ export default function UsuariosPage() {
       toast.success(`Rol de ${userToChangeRole.firstName} cambiado a ${newRole === "admin" ? "Administrador" : "Editor"}`)
       setRoleDialogOpen(false)
       setUserToChangeRole(null)
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       fetchUsers()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al cambiar rol")
@@ -179,6 +185,7 @@ export default function UsuariosPage() {
       toast.success(`Acceso de ${userToRevoke.firstName} revocado correctamente`)
       setRevokeDialogOpen(false)
       setUserToRevoke(null)
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       fetchUsers()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al revocar acceso")

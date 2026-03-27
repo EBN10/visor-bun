@@ -22,6 +22,20 @@
       "when": 1760918274895,
       "tag": "0002_rapid_warbird",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774637384988,
+      "tag": "0003_gorgeous_susan_delgado",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774640440039,
+      "tag": "0004_old_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

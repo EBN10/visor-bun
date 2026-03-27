@@ -143,6 +143,7 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
     onSuccess: () => {
       toast.success("Capa actualizada")
       queryClient.invalidateQueries({ queryKey: ["admin", "layers"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
       onOpenChange(false)
     },
@@ -158,6 +159,7 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
     onSuccess: () => {
       toast.success("Capa eliminada")
       queryClient.invalidateQueries({ queryKey: ["admin", "layers"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
       onOpenChange(false)
     },

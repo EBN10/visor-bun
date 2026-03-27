@@ -145,6 +145,7 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
     onSuccess: () => {
       toast.success("Grupo creado")
       queryClient.invalidateQueries({ queryKey: ["admin", "layer-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
       onOpenChange(false)
     },
@@ -162,6 +163,7 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
     onSuccess: () => {
       toast.success("Grupo actualizado")
       queryClient.invalidateQueries({ queryKey: ["admin", "layer-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
       onOpenChange(false)
     },
@@ -178,6 +180,7 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
       toast.success("Grupo eliminado")
       queryClient.invalidateQueries({ queryKey: ["admin", "layer-groups"] })
       queryClient.invalidateQueries({ queryKey: ["admin", "layers"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
       onOpenChange(false)
     },

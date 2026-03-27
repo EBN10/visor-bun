@@ -1,6 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { getAuditActor, writeAuditLog } from "~/server/audit";
+import { db } from "~/server/db";
 
 export async function GET() {
   const { userId } = await auth();
@@ -86,6 +88,26 @@ export async function POST(request: Request) {
       emailAddress,
       publicMetadata: { role },
     });
+
+    const actor = await getAuditActor();
+    try {
+      await writeAuditLog(db, {
+        actor,
+        action: "invite",
+        resourceType: "invitation",
+        resourceId: invitation.id,
+        resourceLabel: invitation.emailAddress,
+        summary: `Invitó a "${invitation.emailAddress}" como ${role}`,
+        details: {
+          metadata: {
+            role,
+            status: invitation.status,
+          },
+        },
+      });
+    } catch (auditError) {
+      console.error("Error writing invitation audit log:", auditError);
+    }
 
     return NextResponse.json({ 
       success: true, 

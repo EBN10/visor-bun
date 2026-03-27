@@ -39,7 +39,7 @@ Antes de comenzar, asegúrate de tener instalado en tu sistema:
 
 - **[Bun](https://bun.sh/)**: v1.0 o superior (Recomendado).
 - **Node.js**: Compatible si prefieres no usar Bun, pero los scripts están optimizados para Bun.
-- **PostgreSQL**: Una base de datos Postgres activa.
+- **Docker Desktop / Docker Engine + Docker Compose**: Requerido para levantar la base local reproducible con PostGIS.
 
 ## 📦 Instalación
 
@@ -62,13 +62,21 @@ Sigue estos pasos para levantar el proyecto en tu entorno local:
    ```bash
    cp .env.example .env
    ```
-   **Importante**: Asegúrate de configurar correctamente la `DATABASE_URL` para tu base de datos Postgres y las claves de API de Clerk (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`).
+   **Importante**: Los valores `POSTGRES_*` del ejemplo ya coinciden con `compose.yaml`. Si cambias usuario, password, base o puerto, actualiza también `DATABASE_URL`.
+   Si ya tienes otro PostgreSQL escuchando en `5432`, cambia `POSTGRES_PORT` antes de levantar el contenedor.
 
-4. **Sincronizar la base de datos**:
-   Empuja el esquema de la base de datos a tu instancia de Postgres usando Drizzle.
+4. **Levantar PostgreSQL + PostGIS**:
    ```bash
-   bun db:push
+   bun run db:start
    ```
+
+5. **Aplicar migraciones**:
+   ```bash
+   bun run db:migrate
+   ```
+
+6. **Configurar Clerk**:
+   Completa en `.env` las claves de autenticación necesarias (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) antes de entrar al panel administrativo.
 
 ## 💻 Uso
 
@@ -83,9 +91,18 @@ La aplicación estará disponible en `http://localhost:3000`.
 ### Gestión de Base de Datos
 Comandos útiles para manejar la base de datos:
 
-- `bun db:generate`: Genera archivos de migración SQL basados en cambios en tu esquema `drizzle/schema.ts`.
+- `bun run db:start`: levanta PostgreSQL 17 + PostGIS 3.5 con Docker Compose y espera a que esté saludable.
+- `bun run db:stop`: detiene el contenedor de base sin borrar datos.
+- `bun run db:reset`: elimina el contenedor y el volumen de datos local.
+- `bun run db:setup`: levanta la base y aplica las migraciones del proyecto.
+- `bun db:generate`: Genera archivos de migración SQL basados en cambios en `src/server/db/schema.ts`.
 - `bun db:migrate`: Aplica las migraciones pendientes a la base de datos.
+- `bun db:push`: Sincroniza el schema directamente contra la base. Úsalo solo si sabes que quieres evitar el flujo de migraciones.
+- `bun run db:logs`: muestra los logs del contenedor de PostGIS.
 - `bun db:studio`: Abre **Drizzle Studio** en tu navegador, una interfaz visual para explorar y editar tus datos.
+
+La imagen Docker ya instala PostGIS y ejecuta `CREATE EXTENSION IF NOT EXISTS postgis;` al inicializar la base, así que un entorno nuevo no depende de pasos manuales fuera del repositorio.
+Si vienes de una instalación manual anterior y quieres alinear tu entorno con estas migraciones, lo más seguro es recrear la base local con `bun run db:reset` y luego `bun run db:setup`.
 
 ### Linting y Formateo
 Mantén la calidad del código con:
@@ -100,6 +117,9 @@ Para construir y ejecutar la aplicación optimizada para producción:
 bun run build
 bun start
 ```
+
+Para un deploy reproducible con contenedores, el repositorio incluye `Dockerfile` y `compose.production.yaml`.
+La guía de uso en DonWeb quedó documentada en `DEPLOY_DONWEB.md`.
 
 ## 📂 Estructura del Proyecto
 

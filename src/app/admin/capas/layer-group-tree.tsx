@@ -851,6 +851,7 @@ export function LayerGroupTree() {
       setPendingChanges([])
       queryClient.invalidateQueries({ queryKey: ["admin", "layers"] })
       queryClient.invalidateQueries({ queryKey: ["admin", "layer-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       queryClient.invalidateQueries({ queryKey: qk.catalog })
       toast.success(
         `${pendingChanges.length} cambio(s) guardado(s)`

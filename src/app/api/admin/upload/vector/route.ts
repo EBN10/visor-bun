@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { sql } from "drizzle-orm";
+import { getAuditActor, writeAuditLog } from "~/server/audit";
 
 export async function POST(req: Request) {
   try {
@@ -85,6 +86,26 @@ export async function POST(req: Request) {
       srid,
       popupProps: [],
     };
+
+    const actor = await getAuditActor();
+
+    await writeAuditLog(db, {
+      actor,
+      action: "import",
+      resourceType: "vector_table",
+      resourceId: `${schema}.${table}`,
+      resourceLabel: table,
+      summary: `Importó datos vectoriales en la tabla "${schema}.${table}"`,
+      details: {
+        notes: [`Columna geométrica: ${geomColumn}`],
+        metadata: {
+          schema,
+          table,
+          srid,
+          featureCount: fc.features?.length ?? 0,
+        },
+      },
+    });
 
     return NextResponse.json({ ok: true, suggestedConfig });
   } catch (e: any) {

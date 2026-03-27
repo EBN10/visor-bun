@@ -4,6 +4,68 @@ import { useQuery } from "@tanstack/react-query"
 import { fetchJson } from "~/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { Layers, Users, Map, Server } from "lucide-react"
+import { Badge } from "~/components/ui/badge"
+
+interface UsersResponse {
+  users: any[]
+  totalCount: number
+  currentUserId: string
+  currentUserRole: string
+}
+
+interface ActivityLog {
+  id: number
+  action: string
+  resourceType: string
+  resourceId: string
+  resourceLabel: string | null
+  summary: string
+  actorUserId: string | null
+  actorName: string | null
+  actorEmail: string | null
+  details?: {
+    changes?: Array<{
+      field: string
+      label: string
+      before: string | null
+      after: string | null
+    }>
+    notes?: string[]
+  }
+  createdAt: string
+}
+
+const actionLabels: Record<string, string> = {
+  create: "Alta",
+  update: "Edición",
+  delete: "Baja",
+  move: "Movimiento",
+  import: "Importación",
+  invite: "Invitación",
+}
+
+const resourceLabels: Record<string, string> = {
+  layer: "Capa",
+  layer_group: "Grupo",
+  user: "Usuario",
+  invitation: "Invitación",
+  vector_table: "Tabla",
+}
+
+function formatActor(log: ActivityLog) {
+  return log.actorName || log.actorEmail || "Sistema"
+}
+
+function formatTimestamp(value: string) {
+  return new Intl.DateTimeFormat("es-AR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value))
+}
+
+function formatChangeValue(value: string | null) {
+  return value ?? "vacío"
+}
 
 export default function AdminDashboard() {
   const layersQuery = useQuery({
@@ -14,6 +76,16 @@ export default function AdminDashboard() {
   const groupsQuery = useQuery({
     queryKey: ["admin", "layer-groups"],
     queryFn: () => fetchJson<any[]>("/api/admin/layer-groups"),
+  })
+
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => fetchJson<UsersResponse>("/api/admin/users"),
+  })
+
+  const activityQuery = useQuery({
+    queryKey: ["admin", "activity"],
+    queryFn: () => fetchJson<ActivityLog[]>("/api/admin/activity"),
   })
 
   const stats = [
@@ -31,7 +103,7 @@ export default function AdminDashboard() {
     },
     {
       title: "Usuarios Totales",
-      value: "12", // Placeholder
+      value: usersQuery.data?.totalCount ?? 0,
       icon: Users,
       description: "Administradores registrados",
     },
@@ -71,9 +143,75 @@ export default function AdminDashboard() {
             <CardTitle>Actividad Reciente</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              No hay actividad reciente para mostrar.
-            </p>
+            {activityQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">
+                Cargando actividad...
+              </p>
+            ) : activityQuery.isError ? (
+              <p className="text-sm text-destructive">
+                No se pudo cargar el historial de actividad.
+              </p>
+            ) : activityQuery.data && activityQuery.data.length > 0 ? (
+              <div className="space-y-3">
+                {activityQuery.data.map((log) => (
+                  <div
+                    key={log.id}
+                    className="rounded-lg border bg-muted/30 px-3 py-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{log.summary}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatActor(log)} • {formatTimestamp(log.createdAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">
+                          {actionLabels[log.action] ?? log.action}
+                        </Badge>
+                        <Badge variant="outline">
+                          {resourceLabels[log.resourceType] ?? log.resourceType}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {log.details?.changes && log.details.changes.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        {log.details.changes.map((change) => (
+                          <p
+                            key={`${log.id}-${change.field}`}
+                            className="text-xs text-muted-foreground"
+                          >
+                            <span className="font-medium text-foreground">
+                              {change.label}:
+                            </span>{" "}
+                            {formatChangeValue(change.before)} →{" "}
+                            {formatChangeValue(change.after)}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {log.details?.notes && log.details.notes.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        {log.details.notes.map((note, index) => (
+                          <p
+                            key={`${log.id}-note-${index}`}
+                            className="text-xs text-muted-foreground"
+                          >
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No hay actividad reciente para mostrar.
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="col-span-3">

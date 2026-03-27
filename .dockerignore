@@ -1,0 +1,14 @@
+.git
+.gitignore
+.next
+.qodo
+.vscode
+node_modules
+coverage
+dist
+build
+.env
+.env.local
+.env.*.local
+tsconfig.tsbuildinfo
+DEPLOY_DONWEB.md

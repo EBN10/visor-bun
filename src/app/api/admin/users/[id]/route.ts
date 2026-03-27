@@ -1,6 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { getAuditActor, writeAuditLog } from "~/server/audit";
+import { db } from "~/server/db";
 
 // GET - Get a specific user's details
 export async function GET(
@@ -66,12 +68,18 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
     const { role } = body;
+    const targetUser = await client.users.getUser(id);
+    const targetRole = (targetUser.publicMetadata?.role as string) ?? "editor";
 
     if (!role || !["admin", "editor"].includes(role)) {
       return NextResponse.json(
         { error: "Rol inválido. Debe ser 'admin' o 'editor'" },
         { status: 400 }
       );
+    }
+
+    if (targetRole === role) {
+      return NextResponse.json({ success: true });
     }
 
     // Prevent removing the last admin
@@ -91,6 +99,33 @@ export async function PATCH(
     await client.users.updateUser(id, {
       publicMetadata: { role },
     });
+
+    const actor = await getAuditActor();
+    try {
+      await writeAuditLog(db, {
+        actor,
+        action: "update",
+        resourceType: "user",
+        resourceId: id,
+        resourceLabel:
+          [targetUser.firstName, targetUser.lastName].filter(Boolean).join(" ").trim() ||
+          targetUser.emailAddresses[0]?.emailAddress ||
+          id,
+        summary: `Actualizó el rol de "${targetUser.emailAddresses[0]?.emailAddress ?? id}"`,
+        details: {
+          changes: [
+            {
+              field: "role",
+              label: "Rol",
+              before: targetRole,
+              after: role,
+            },
+          ],
+        },
+      });
+    } catch (auditError) {
+      console.error("Error writing user role audit log:", auditError);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -155,6 +190,28 @@ export async function DELETE(
     }
 
     await client.users.deleteUser(id);
+
+    const actor = await getAuditActor();
+    try {
+      await writeAuditLog(db, {
+        actor,
+        action: "delete",
+        resourceType: "user",
+        resourceId: id,
+        resourceLabel:
+          [targetUser.firstName, targetUser.lastName].filter(Boolean).join(" ").trim() ||
+          targetUser.emailAddresses[0]?.emailAddress ||
+          id,
+        summary: `Revocó el acceso de "${targetUser.emailAddresses[0]?.emailAddress ?? id}"`,
+        details: {
+          metadata: {
+            role: targetRole,
+          },
+        },
+      });
+    } catch (auditError) {
+      console.error("Error writing user revoke audit log:", auditError);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

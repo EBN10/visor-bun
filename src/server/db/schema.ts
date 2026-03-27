@@ -12,6 +12,8 @@ import {
   jsonb,
   pgEnum,
   type AnyPgColumn,
+  timestamp,
+  index,
 } from 'drizzle-orm/pg-core';
 
 // ============================================================================
@@ -52,6 +54,19 @@ export type XyzConfig = {
 }
 
 export type LayerConfig = VectorConfig | WmsConfig | XyzConfig
+
+export type AuditLogChange = {
+  field: string
+  label: string
+  before: string | null
+  after: string | null
+}
+
+export type AuditLogDetails = {
+  changes?: AuditLogChange[]
+  notes?: string[]
+  metadata?: Record<string, unknown>
+}
 
 // ============================================================================
 // 4. TABLES
@@ -103,3 +118,24 @@ export const layers = pgTable("layers", {
   defaultVisible: boolean("default_visible").notNull().default(false),
   config: jsonb("config").$type<LayerConfig>().notNull(),
 })
+
+// Administrative audit trail for traceability across admin actions
+export const adminAuditLogs = pgTable(
+  "admin_audit_logs",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    action: text("action").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    resourceLabel: text("resource_label"),
+    summary: text("summary").notNull(),
+    actorUserId: text("actor_user_id"),
+    actorName: text("actor_name"),
+    actorEmail: text("actor_email"),
+    details: jsonb("details").$type<AuditLogDetails>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    createdAtIdx: index("admin_audit_logs_created_at_idx").on(table.createdAt),
+  })
+)
