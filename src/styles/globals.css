@@ -4,12 +4,15 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ===================================
-   VISOR SDE - DESIGN SYSTEM
-   Institutional Blue Palette
+   IDE SANTIAGO DEL ESTERO
+   Design System — Cartografía Viva
+   Dir. de Estadísticas y Censos
    =================================== */
 
 @theme {
-  --font-sans: var(--font-kanit), ui-sans-serif, system-ui, sans-serif,
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-heading: var(--font-sora), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
@@ -53,73 +56,80 @@
 
 :root {
   --radius: 0.625rem;
-  
-  /* Light Theme - Institutional Blue */
-  --background: #FFFFFF;
-  --foreground: #1A2B4A;
+
+  /* ── Logo Identity Colors ── */
+  --logo-peach: #E0BF96;
+  --logo-lime: #9EAD3C;
+  --logo-gold: #C49830;
+  --logo-pearl: #CCC9C4;
+
+  /* ── Light Theme: Warm Cartographic ── */
+  --background: #F6F5F0;
+  --foreground: #1C1B16;
   --card: #FFFFFF;
-  --card-foreground: #1A2B4A;
+  --card-foreground: #1C1B16;
   --popover: #FFFFFF;
-  --popover-foreground: #1A2B4A;
-  --primary: #2E4A7D;
+  --popover-foreground: #1C1B16;
+  --primary: #7A6C28;
   --primary-foreground: #FFFFFF;
-  --secondary: #F4F6F9;
-  --secondary-foreground: #2E4A7D;
-  --muted: #F4F6F9;
-  --muted-foreground: #5C6B84;
-  --accent: #2E4A7D;
-  --accent-foreground: #FFFFFF;
-  --destructive: #DC2626;
-  --border: #E5E9F0;
-  --input: #E5E9F0;
-  --ring: #2E4A7D;
-  --chart-1: #2E4A7D;
-  --chart-2: #4A6BA8;
-  --chart-3: #1A2B4A;
-  --chart-4: #6B8AC4;
-  --chart-5: #9DB4DE;
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #1A2B4A;
-  --sidebar-primary: #2E4A7D;
+  --secondary: #F2F1EB;
+  --secondary-foreground: #4A4639;
+  --muted: #EEEDEA;
+  --muted-foreground: #827D70;
+  --accent: #F2F1EB;
+  --accent-foreground: #4A4639;
+  --destructive: #B91C1C;
+  --border: #E5E3DC;
+  --input: #E5E3DC;
+  --ring: #7A6C28;
+  --chart-1: #7A6C28;
+  --chart-2: #6B7B2E;
+  --chart-3: #C49830;
+  --chart-4: #8B9A3A;
+  --chart-5: #A99468;
+  --sidebar: #e9e6de;
+  --sidebar-foreground: #1C1B16;
+  --sidebar-primary: #7A6C28;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F4F6F9;
-  --sidebar-accent-foreground: #2E4A7D;
-  --sidebar-border: #E5E9F0;
-  --sidebar-ring: #2E4A7D;
+  --sidebar-accent: #EEEDEA;
+  --sidebar-accent-foreground: #4A4639;
+  --sidebar-border: #E5E3DC;
+  --sidebar-ring: #7A6C28;
 }
 
 .dark {
-  --background: #0D1421;
-  --foreground: #E8ECF4;
-  --card: #151F32;
-  --card-foreground: #E8ECF4;
-  --popover: #151F32;
-  --popover-foreground: #E8ECF4;
-  --primary: #4A6BA8;
-  --primary-foreground: #FFFFFF;
-  --secondary: #1A2B4A;
-  --secondary-foreground: #E8ECF4;
-  --muted: #1A2B4A;
-  --muted-foreground: #8B9BB8;
-  --accent: #4A6BA8;
-  --accent-foreground: #FFFFFF;
+  /* ── Dark Theme: Deep Olive-Black ── */
+  --background: #111210;
+  --foreground: #EDECE7;
+  --card: #1A1917;
+  --card-foreground: #EDECE7;
+  --popover: #1A1917;
+  --popover-foreground: #EDECE7;
+  --primary: #C9A84C;
+  --primary-foreground: #111210;
+  --secondary: #24231F;
+  --secondary-foreground: #EDECE7;
+  --muted: #24231F;
+  --muted-foreground: #9C9788;
+  --accent: #24231F;
+  --accent-foreground: #EDECE7;
   --destructive: #EF4444;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.1);
-  --ring: #4A6BA8;
-  --chart-1: #4A6BA8;
-  --chart-2: #6B8AC4;
-  --chart-3: #3B5998;
-  --chart-4: #5C7DBD;
-  --chart-5: #8BA8D9;
-  --sidebar: #0D1421;
-  --sidebar-foreground: #E8ECF4;
-  --sidebar-primary: #4A6BA8;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #1A2B4A;
-  --sidebar-accent-foreground: #E8ECF4;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #4A6BA8;
+  --border: rgba(255, 255, 255, 0.07);
+  --input: rgba(255, 255, 255, 0.07);
+  --ring: #C9A84C;
+  --chart-1: #C9A84C;
+  --chart-2: #9EAD3C;
+  --chart-3: #E0BF96;
+  --chart-4: #8B9A3A;
+  --chart-5: #D4B87A;
+  --sidebar: #161514;
+  --sidebar-foreground: #EDECE7;
+  --sidebar-primary: #C9A84C;
+  --sidebar-primary-foreground: #111210;
+  --sidebar-accent: #22211E;
+  --sidebar-accent-foreground: #EDECE7;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #C9A84C;
 }
 
 @layer base {

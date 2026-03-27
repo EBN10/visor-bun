@@ -19,7 +19,7 @@ export function MapSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
-        <a href="/" className="flex items-center justify-center rounded-lg gap-4 text-sidebar-primary-foreground">
+        <a href="/" className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-sidebar-accent/60 transition-colors">
           <div className="flex aspect-square p-1 items-center justify-center rounded-lg bg-black text-sidebar-primary-foreground">
             <Image src="/logo-dir.estadisticasycensos.png" alt="Logo" className="-ml-0.5" width={30} height={30} />
           </div>

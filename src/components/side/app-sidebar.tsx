@@ -1,24 +1,24 @@
-"use client"
+"use client";
 
-import * as React from "react"
+import * as React from "react";
+import Link from "next/link";
 import {
-  LifeBuoy,
+  FileUp,
+  LayoutDashboard,
+  Layers3,
   Map,
-  Send,
-  SquareTerminal,
-} from "lucide-react"
-import { SidebarThemeToggle } from "~/components/side/sidebar-theme-toggle"
-import Image from "next/image"
-import { NavMain } from "./nav-main"
-import { NavSecondary } from "./nav-secondary"
-import { NavUser } from "./nav-user"
+  UsersRound,
+} from "lucide-react";
+import { SidebarThemeToggle } from "~/components/side/sidebar-theme-toggle";
+import Image from "next/image";
+import { NavMain } from "./nav-main";
+import { NavUser } from "./nav-user";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarSeparator,
-} from "~/components/ui/sidebar"
+} from "~/components/ui/sidebar";
 
 const data = {
   user: {
@@ -28,78 +28,76 @@ const data = {
   },
   navMain: [
     {
-      title: "Administración",
+      title: "Panel de control",
       url: "/admin",
-      icon: SquareTerminal,
-      isActive: true,
-      items: [
-        {
-          title: "Panel de Control",
-          url: "/admin",
-        },
-        {
-          title: "Capas",
-          url: "/admin/capas",
-        },
-        {
-          title: "Usuarios",
-          url: "/admin/usuarios",
-        },
-        {
-          title: "Importar QGIS",
-          url: "/admin/qgis",
-        },
-      ],
+      icon: LayoutDashboard,
+    },
+    {
+      title: "Capas",
+      url: "/admin/capas",
+      icon: Layers3,
+    },
+    {
+      title: "Usuarios",
+      url: "/admin/usuarios",
+      icon: UsersRound,
+    },
+    {
+      title: "Importar QGIS",
+      url: "/admin/qgis",
+      icon: FileUp,
     },
     {
       title: "Mapa",
       url: "/mapa",
       icon: Map,
-      items: [
-        {
-          title: "Ver Mapa",
-          url: "/mapa",
-        },
-      ],
     },
   ],
-  navSecondary: [
-    {
-      title: "Soporte",
-      url: "#",
-      icon: LifeBuoy,
-    },
-    {
-      title: "Comentarios",
-      url: "#",
-      icon: Send,
-    },
-  ],
-}
+};
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
-        <a href="/" className="flex items-center justify-center rounded-lg gap-4 text-sidebar-primary-foreground">
-          <div className="flex aspect-square p-1 items-center justify-center rounded-lg bg-black text-sidebar-primary-foreground">
-            <Image src="/logo-dir.estadisticasycensos.png" alt="Logo" className="-ml-0.5" width={30} height={30} />
+        <Link
+          href="/"
+          className="hover:bg-sidebar-accent/60 flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors"
+        >
+          <div className="flex aspect-square size-8 items-center justify-center overflow-hidden rounded-lg">
+            <Image
+              src="/logo-dir.estadisticasycensos.png"
+              alt="Logo"
+              width={32}
+              height={32}
+            />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">Visor de Mapa</span>
-            <span className="truncate text-xs">Dirección de Estadísticas</span>
+            <span className="font-heading truncate font-semibold">
+              IDE Visor
+            </span>
+            <span className="text-muted-foreground truncate text-xs">
+              Dir. de Estadísticas
+            </span>
           </div>
-        </a>
+        </Link>
       </SidebarHeader>
-      <SidebarSeparator className="my-4" />
+
+      {/* Branded separator — 4 logo colors */}
+      <div
+        className="mx-4 my-3 h-px opacity-50"
+        style={{
+          background:
+            "linear-gradient(to right, var(--logo-peach), var(--logo-lime), var(--logo-gold), var(--logo-pearl))",
+        }}
+      />
+
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-         <SidebarThemeToggle />
+        <SidebarThemeToggle />
         <NavUser />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

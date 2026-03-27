@@ -33,11 +33,11 @@ export default async function AdminLayout({
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="#">Administración</BreadcrumbLink>
+                  <BreadcrumbLink href="#" className="font-heading">Administración</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Panel de Control</BreadcrumbPage>
+                  <BreadcrumbPage className="font-heading">Panel de Control</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>

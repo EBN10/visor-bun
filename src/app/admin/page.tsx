@@ -13,6 +13,8 @@ interface UsersResponse {
   currentUserRole: string;
 }
 
+const accents = ["#C49830", "#9EAD3C", "#E0BF96"] as const;
+
 export default function AdminDashboard() {
   const layersQuery = useQuery({
     queryKey: ["admin", "layers"],
@@ -52,19 +54,36 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-3xl font-bold tracking-tight">Panel de Control</h1>
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight font-heading">
+          Panel de Control
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          Resumen general del visor geoespacial
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {stats.map((stat) => (
-          <Card key={stat.title}>
+        {stats.map((stat, i) => (
+          <Card
+            key={stat.title}
+            className="relative overflow-hidden group hover:shadow-md hover:-translate-y-0.5 transition-all duration-300"
+          >
+            <div
+              className="absolute left-0 top-0 bottom-0 w-[2px]"
+              style={{ background: accents[i] }}
+            />
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 {stat.title}
               </CardTitle>
-              <stat.icon className="text-muted-foreground h-4 w-4" />
+              <div className="p-2 rounded-lg bg-primary/[0.06] group-hover:bg-primary/[0.1] transition-colors">
+                <stat.icon className="text-primary h-4 w-4" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <p className="text-muted-foreground text-xs">
+              <div className="text-3xl font-bold font-heading">{stat.value}</div>
+              <p className="text-muted-foreground text-xs mt-1">
                 {stat.description}
               </p>
             </CardContent>
