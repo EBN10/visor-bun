@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Feature, FeatureCollection, GeoJsonObject } from "geojson";
 import L from "leaflet";
@@ -13,13 +13,10 @@ import {
   WMSTileLayer,
 } from "react-leaflet";
 import {
-  Layers3,
-  MapPinned,
   Minus,
   Navigation,
   Plus,
   RotateCcw,
-  Satellite,
 } from "lucide-react";
 import { useLayers } from "~/components/layers/provider";
 import { Button } from "~/components/ui/button";
@@ -96,6 +93,15 @@ function applyResolvedStyle(
   if (layer instanceof L.CircleMarker) {
     layer.setRadius(style.radius);
   }
+}
+
+function hasBringToFront(
+  layer: L.Layer,
+): layer is L.Layer & { bringToFront: () => void } {
+  return (
+    "bringToFront" in layer &&
+    typeof (layer as { bringToFront?: unknown }).bringToFront === "function"
+  );
 }
 
 function ScaleControl() {
@@ -215,12 +221,21 @@ function VectorLayer({
   const geoJsonLayerRef = useRef<L.GeoJSON | null>(null);
   const selectedLayerRef = useRef<L.Layer | null>(null);
   const selectedFeatureRef = useRef<Feature | null>(null);
+  const configRef = useRef(config);
+  const layerNameRef = useRef(layerMeta.name);
+  const viewportZoomRef = useRef(viewport.zoom);
   const [requestViewport, setRequestViewport] =
     useState<MapViewportSnapshot>(viewport);
   const queryViewport = useMemo(
     () => viewportToQuery(requestViewport),
     [requestViewport],
   );
+
+  useEffect(() => {
+    configRef.current = config;
+    layerNameRef.current = layerMeta.name;
+    viewportZoomRef.current = viewport.zoom;
+  }, [config, layerMeta.name, viewport.zoom]);
 
   useEffect(() => {
     const coveredBounds = viewportToQuery(requestViewport).bounds;
@@ -256,24 +271,27 @@ function VectorLayer({
     refetchOnWindowFocus: false,
   });
 
+  const getFeatureStyle = useCallback(
+    (
+      feature: Feature | undefined,
+      state: Parameters<typeof getResolvedVectorStyle>[0]["state"] = "default",
+    ) =>
+      getResolvedVectorStyle({
+        layerId: layerMeta.id,
+        config: configRef.current,
+        feature,
+        zoom: viewportZoomRef.current,
+        state,
+      }),
+    [layerMeta.id],
+  );
+
   const geoJsonOptions = useMemo<L.GeoJSONOptions>(() => {
     return {
       style: (feature) =>
-        toPathOptions(
-          getResolvedVectorStyle({
-            layerId: layerMeta.id,
-            config,
-            feature: feature as Feature | undefined,
-            zoom: viewport.zoom,
-          }),
-        ),
+        toPathOptions(getFeatureStyle(feature as Feature | undefined)),
       pointToLayer: (feature, latlng) => {
-        const style = getResolvedVectorStyle({
-          layerId: layerMeta.id,
-          config,
-          feature: feature as Feature,
-          zoom: viewport.zoom,
-        });
+        const style = getFeatureStyle(feature as Feature);
 
         return L.circleMarker(latlng, {
           ...toPathOptions(style),
@@ -282,9 +300,9 @@ function VectorLayer({
       },
       onEachFeature: (feature, layer) => {
         const popupHtml = buildPopupHtml(
-          layerMeta.name,
+          layerNameRef.current,
           (feature.properties ?? {}) as Record<string, unknown>,
-          config,
+          configRef.current,
         );
 
         if (popupHtml) {
@@ -297,16 +315,7 @@ function VectorLayer({
         const applyState = (
           state: Parameters<typeof getResolvedVectorStyle>[0]["state"],
         ) => {
-          applyResolvedStyle(
-            layer,
-            getResolvedVectorStyle({
-              layerId: layerMeta.id,
-              config,
-              feature: feature as Feature,
-              zoom: viewport.zoom,
-              state,
-            }),
-          );
+          applyResolvedStyle(layer, getFeatureStyle(feature as Feature, state));
         };
 
         applyState("default");
@@ -317,10 +326,7 @@ function VectorLayer({
               applyState("hover");
             }
 
-            if (
-              "bringToFront" in layer &&
-              typeof layer.bringToFront === "function"
-            ) {
+            if (hasBringToFront(layer)) {
               layer.bringToFront();
             }
           },
@@ -337,12 +343,7 @@ function VectorLayer({
             ) {
               applyResolvedStyle(
                 selectedLayerRef.current,
-                getResolvedVectorStyle({
-                  layerId: layerMeta.id,
-                  config,
-                  feature: selectedFeatureRef.current,
-                  zoom: viewport.zoom,
-                }),
+                getFeatureStyle(selectedFeatureRef.current),
               );
             }
 
@@ -360,7 +361,7 @@ function VectorLayer({
         });
       },
     };
-  }, [config, layerMeta.id, layerMeta.name, viewport.zoom]);
+  }, [getFeatureStyle]);
 
   useEffect(() => {
     const geoJsonLayer = L.geoJSON(undefined, geoJsonOptions).addTo(map);
@@ -386,6 +387,22 @@ function VectorLayer({
     geoJsonLayer.clearLayers();
     geoJsonLayer.addData(data as GeoJsonObject);
   }, [data]);
+
+  useEffect(() => {
+    const geoJsonLayer = geoJsonLayerRef.current;
+
+    if (!geoJsonLayer) {
+      return;
+    }
+
+    geoJsonLayer.eachLayer((layer) => {
+      const feature = (layer as L.Layer & { feature?: Feature }).feature;
+      const state =
+        selectedLayerRef.current === layer ? "selected" : "default";
+
+      applyResolvedStyle(layer, getFeatureStyle(feature, state));
+    });
+  }, [config, getFeatureStyle, viewport.zoom]);
 
   return null;
 }
@@ -486,8 +503,9 @@ function LayerRenderer() {
 
 export default function ClientMap() {
   const { mapViewport, metas, registerMap, visibleLayerIds } = useLayers();
-  const [baseMapId, setBaseMapId] =
-    useState<(typeof BASEMAPS)[number]["id"]>("carto-light");
+  const [baseMapId] = useState<(typeof BASEMAPS)[number]["id"]>(
+    "carto-voyager",
+  );
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
   const [cursorPosition, setCursorPosition] = useState<LatLng | null>(null);
   const [currentZoom, setCurrentZoom] = useState(MAP_ZOOM);
