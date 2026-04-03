@@ -289,7 +289,7 @@ function VectorLayer({
 
         if (popupHtml) {
           layer.bindPopup(popupHtml, {
-            maxWidth: 360,
+            maxWidth: 448,
             className: "map-popup-shell",
           });
         }

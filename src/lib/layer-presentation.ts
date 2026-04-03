@@ -110,6 +110,29 @@ function getPopupCandidate(
   })
 }
 
+function resolvePropertyKey(
+  properties: Record<string, unknown>,
+  candidate?: string | null,
+) {
+  const normalizedCandidate = candidate?.trim()
+
+  if (!normalizedCandidate) {
+    return null
+  }
+
+  if (normalizedCandidate in properties) {
+    return normalizedCandidate
+  }
+
+  const lowerCandidate = normalizedCandidate.toLowerCase()
+
+  return (
+    Object.keys(properties).find(
+      (propertyKey) => propertyKey.toLowerCase() === lowerCandidate,
+    ) ?? null
+  )
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -339,8 +362,13 @@ export function buildPopupHtml(
 ): string | null {
   const popupConfig = config?.popup
   const aliases = popupConfig?.aliases ?? {}
+  const configuredTitleProp = resolvePropertyKey(properties, popupConfig?.titleProp)
+  const configuredSubtitleProp = resolvePropertyKey(
+    properties,
+    popupConfig?.subtitleProp,
+  )
   const titleProp =
-    popupConfig?.titleProp ??
+    configuredTitleProp ??
     getPopupCandidate(properties, [
       "nombre",
       "name",
@@ -352,7 +380,7 @@ export function buildPopupHtml(
       "id",
     ])
   const subtitleProp =
-    popupConfig?.subtitleProp ??
+    configuredSubtitleProp ??
     getPopupCandidate(properties, [
       "jur",
       "dpto",
@@ -404,22 +432,24 @@ export function buildPopupHtml(
 
   return `
     <section class="map-popup">
-      <div class="map-popup__eyebrow">${escapeHtml(
-        config?.legend?.label ?? layerName,
-      )}</div>
-      ${
-        titleValue
-          ? `<h3 class="map-popup__title">${escapeHtml(titleValue)}</h3>`
-          : ""
-      }
-      ${
-        subtitleValue
-          ? `<p class="map-popup__subtitle">${escapeHtml(subtitleValue)}</p>`
-          : ""
-      }
+      <div class="map-popup__header">
+        <div class="map-popup__eyebrow">${escapeHtml(
+          config?.legend?.label ?? layerName,
+        )}</div>
+        ${
+          titleValue
+            ? `<h3 class="map-popup__title">${escapeHtml(titleValue)}</h3>`
+            : ""
+        }
+        ${
+          subtitleValue
+            ? `<p class="map-popup__subtitle">${escapeHtml(subtitleValue)}</p>`
+            : ""
+        }
+      </div>
       ${
         rows.length > 0
-          ? `<div class="map-popup__rows">${rows.join("")}</div>`
+          ? `<div class="map-popup__body"><div class="map-popup__rows">${rows.join("")}</div></div>`
           : ""
       }
     </section>
