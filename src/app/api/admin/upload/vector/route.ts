@@ -78,6 +78,8 @@ export async function POST(req: Request) {
       end$$;
     `);
 
+    await db.execute(sql.raw(`ANALYZE ${schema}.${table}`));
+
     const suggestedConfig = {
       type: "vector" as const,
       schema,

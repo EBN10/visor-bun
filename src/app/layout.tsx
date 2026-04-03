@@ -6,6 +6,7 @@ import { QueryProvider } from "~/components/query/QueryProvider";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "~/components/ui/sonner";
 import { ThemeProvider } from "~/components/providers/theme-provider";
+import { clerkAppearance } from "~/lib/clerk-appearance";
 
 export const metadata: Metadata = {
   title: "IDE Santiago del Estero | Infraestructura de Datos Espaciales",
@@ -31,7 +32,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider appearance={clerkAppearance}>
       <html
         lang="es"
         className={`${dmSans.variable} ${sora.variable}`}

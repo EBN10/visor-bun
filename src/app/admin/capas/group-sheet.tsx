@@ -117,7 +117,6 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
   const [id, setId] = useState("")
   const [name, setName] = useState("")
   const [parentId, setParentId] = useState<string | null>(null)
-  const [order, setOrder] = useState(0)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   useEffect(() => {
@@ -125,12 +124,10 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
       setId(group.id ?? "")
       setName(group.name ?? "")
       setParentId(group.parentId ?? null)
-      setOrder(group.order ?? 0)
     } else if (isNew) {
       setId("")
       setName("")
       setParentId(null)
-      setOrder(0)
     }
   }, [group, isNew])
 
@@ -197,7 +194,6 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
         id: id.trim(),
         name: name.trim(),
         parentId,
-        order,
       })
     } else {
       if (!group) return
@@ -205,7 +201,6 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
         id: group.id,
         name: name.trim(),
         parentId,
-        order,
       })
     }
   }
@@ -291,20 +286,6 @@ export function GroupSheet({ open, onOpenChange, group, groups, isNew }: GroupSh
                 </SheetSelectItem>
               ))}
             </SheetSelect>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="group-order" className="text-sm">Orden</Label>
-            <Input
-              id="group-order"
-              type="number"
-              value={order}
-              onChange={(e) => setOrder(parseInt(e.target.value) || 0)}
-              className="h-9"
-            />
-            <p className="text-xs text-muted-foreground">
-              Menor orden = aparece primero.
-            </p>
           </div>
         </div>
 

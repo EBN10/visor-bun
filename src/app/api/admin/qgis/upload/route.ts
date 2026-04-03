@@ -160,6 +160,7 @@ export async function POST(req: Request) {
     const randomSuffix = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
     const tableId = `qgis_${sanitizedTableName}_${Date.now()}_${randomSuffix}`;
     createdTableId = tableId;
+    const indexName = `${tableId.slice(0, 48)}_geom_gix`;
 
     // 2. Create Table SQL
     const columnsSql: string[] = [];
@@ -185,6 +186,12 @@ export async function POST(req: Request) {
 
     // Execute Create Table
     await db.execute(sql.raw(createTableQuery));
+
+    await db.execute(
+      sql.raw(
+        `CREATE INDEX "${indexName}" ON public."${tableId}" USING GIST (geom);`,
+      ),
+    );
 
     // 3. Insert Data
     // We construct INSERT statements dynamically for each feature,
@@ -245,6 +252,8 @@ export async function POST(req: Request) {
         await db.execute(sql.raw(insertQuery));
       }
     }
+
+    await db.execute(sql.raw(`ANALYZE public."${tableId}"`));
 
     // 4. Register Layer
     const actor = await getAuditActor();

@@ -84,13 +84,13 @@ function TreeItem<T = any>({
     "--tree-padding": `${item.getItemMeta().level * indent}px`,
   } as React.CSSProperties
 
-  const Comp = asChild ? Slot.Root : "button"
+  const Comp: any = asChild ? Slot.Root : "button"
 
   return (
     <TreeContext.Provider value={{ indent, currentItem: item }}>
       <Comp
         data-slot="tree-item"
-        style={mergedStyle}
+        style={mergedStyle as any}
         className={cn(
           "z-10 ps-(--tree-padding) outline-hidden select-none not-last:pb-0.5 focus:z-20 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
           className

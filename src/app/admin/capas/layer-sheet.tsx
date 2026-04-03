@@ -120,6 +120,12 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
   const [groupId, setGroupId] = useState("")
   const [defaultVisible, setDefaultVisible] = useState(false)
   const [popupProps, setPopupProps] = useState<string[]>([])
+  const [accentColor, setAccentColor] = useState("")
+  const [opacity, setOpacity] = useState("")
+  const [minZoom, setMinZoom] = useState("")
+  const [maxZoom, setMaxZoom] = useState("")
+  const [popupTitleProp, setPopupTitleProp] = useState("")
+  const [popupSubtitleProp, setPopupSubtitleProp] = useState("")
   const [newPropValue, setNewPropValue] = useState("")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
@@ -129,6 +135,24 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
       setGroupId(layer.groupId ?? "")
       setDefaultVisible(layer.defaultVisible ?? false)
       setPopupProps(layer.config?.popupProps ?? [])
+      setAccentColor(layer.config?.style?.color ?? layer.config?.legend?.color ?? "")
+      setOpacity(
+        layer.config?.opacity === undefined || layer.config?.opacity === null
+          ? ""
+          : String(layer.config.opacity),
+      )
+      setMinZoom(
+        layer.config?.minZoom === undefined || layer.config?.minZoom === null
+          ? ""
+          : String(layer.config.minZoom),
+      )
+      setMaxZoom(
+        layer.config?.maxZoom === undefined || layer.config?.maxZoom === null
+          ? ""
+          : String(layer.config.maxZoom),
+      )
+      setPopupTitleProp(layer.config?.popup?.titleProp ?? "")
+      setPopupSubtitleProp(layer.config?.popup?.subtitleProp ?? "")
     }
   }, [layer])
 
@@ -169,9 +193,82 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
   const handleSave = () => {
     if (!layer) return
 
+    const parseOptionalNumber = (value: string) => {
+      if (!value.trim()) {
+        return undefined
+      }
+
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : undefined
+    }
+
     const config = { ...layer.config }
+    const nextOpacity = parseOptionalNumber(opacity)
+    const nextMinZoom = parseOptionalNumber(minZoom)
+    const nextMaxZoom = parseOptionalNumber(maxZoom)
+
+    if (nextOpacity === undefined) {
+      delete config.opacity
+    } else {
+      config.opacity = nextOpacity
+    }
+
+    if (nextMinZoom === undefined) {
+      delete config.minZoom
+    } else {
+      config.minZoom = nextMinZoom
+    }
+
+    if (nextMaxZoom === undefined) {
+      delete config.maxZoom
+    } else {
+      config.maxZoom = nextMaxZoom
+    }
+
     if (config.type === "vector") {
       config.popupProps = popupProps
+
+      const nextStyle = { ...(config.style ?? {}) }
+      const nextPopup = { ...(config.popup ?? {}) }
+      const nextLegend = { ...(config.legend ?? {}) }
+
+      if (accentColor.trim()) {
+        nextStyle.color = accentColor.trim()
+        nextLegend.color = accentColor.trim()
+      } else {
+        delete nextStyle.color
+        delete nextLegend.color
+      }
+
+      if (popupTitleProp.trim()) {
+        nextPopup.titleProp = popupTitleProp.trim()
+      } else {
+        delete nextPopup.titleProp
+      }
+
+      if (popupSubtitleProp.trim()) {
+        nextPopup.subtitleProp = popupSubtitleProp.trim()
+      } else {
+        delete nextPopup.subtitleProp
+      }
+
+      if (Object.keys(nextStyle).length > 0) {
+        config.style = nextStyle
+      } else {
+        delete config.style
+      }
+
+      if (Object.keys(nextPopup).length > 0) {
+        config.popup = nextPopup
+      } else {
+        delete config.popup
+      }
+
+      if (Object.keys(nextLegend).length > 0) {
+        config.legend = nextLegend
+      } else {
+        delete config.legend
+      }
     }
 
     updateMutation.mutate({
@@ -282,6 +379,77 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
 
           <Separator />
 
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm">Visualización</Label>
+              <p className="text-xs text-muted-foreground">
+                Ajustes seguros que impactan el visor sin tocar la fuente de datos.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {layer.kind === "vector" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="accent-color" className="text-sm">Color base</Label>
+                  <Input
+                    id="accent-color"
+                    value={accentColor}
+                    onChange={(e) => setAccentColor(e.target.value)}
+                    placeholder="#1462cc"
+                    className="h-9"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label htmlFor="opacity" className="text-sm">Opacidad</Label>
+                <Input
+                  id="opacity"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={opacity}
+                  onChange={(e) => setOpacity(e.target.value)}
+                  placeholder="1"
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="min-zoom" className="text-sm">Zoom mínimo</Label>
+                <Input
+                  id="min-zoom"
+                  type="number"
+                  min="0"
+                  max="22"
+                  step="1"
+                  value={minZoom}
+                  onChange={(e) => setMinZoom(e.target.value)}
+                  placeholder="Sin límite"
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="max-zoom" className="text-sm">Zoom máximo</Label>
+                <Input
+                  id="max-zoom"
+                  type="number"
+                  min="0"
+                  max="22"
+                  step="1"
+                  value={maxZoom}
+                  onChange={(e) => setMaxZoom(e.target.value)}
+                  placeholder="Sin límite"
+                  className="h-9"
+                />
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           {/* Popup Props (vector only) */}
           {layer.kind === "vector" && (
             <div className="space-y-3">
@@ -290,6 +458,30 @@ export function LayerSheet({ open, onOpenChange, layer, groups }: LayerSheetProp
                 <p className="text-xs text-muted-foreground">
                   Campos visibles al hacer clic en el mapa
                 </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="popup-title" className="text-sm">Campo título</Label>
+                  <Input
+                    id="popup-title"
+                    value={popupTitleProp}
+                    onChange={(e) => setPopupTitleProp(e.target.value)}
+                    placeholder="ej. nombre"
+                    className="h-9"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="popup-subtitle" className="text-sm">Campo subtítulo</Label>
+                  <Input
+                    id="popup-subtitle"
+                    value={popupSubtitleProp}
+                    onChange={(e) => setPopupSubtitleProp(e.target.value)}
+                    placeholder="ej. dpto"
+                    className="h-9"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

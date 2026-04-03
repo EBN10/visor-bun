@@ -29,16 +29,59 @@ export const layerKind = pgEnum("layer_kind", ["vector", "xyz", "wms"])
 // ============================================================================
 // 3. TYPES
 // ============================================================================
-export type VectorConfig = {
+export type LayerBoundsConfig =
+  | {
+      south: number
+      west: number
+      north: number
+      east: number
+    }
+  | [west: number, south: number, east: number, north: number]
+
+export type LayerLegendConfig = {
+  label?: string
+  description?: string
+  color?: string
+}
+
+export type LayerPopupConfig = {
+  titleProp?: string
+  subtitleProp?: string
+  aliases?: Record<string, string>
+  hiddenProps?: string[]
+  order?: string[]
+}
+
+export type LayerDisplayConfig = {
+  opacity?: number
+  minZoom?: number
+  maxZoom?: number
+  bounds?: LayerBoundsConfig
+  legend?: LayerLegendConfig
+}
+
+export type VectorStyleConfig = {
+  color?: string
+  fillColor?: string
+  weight?: number
+  fillOpacity?: number
+  opacity?: number
+  pointRadius?: number
+  dashArray?: string
+}
+
+export type VectorConfig = LayerDisplayConfig & {
   type: "vector"
   schema: string
   table: string
   geomColumn: string
   srid: number
   popupProps?: string[]
+  popup?: LayerPopupConfig
+  style?: VectorStyleConfig
 }
 
-export type WmsConfig = {
+export type WmsConfig = LayerDisplayConfig & {
   type: "wms"
   url: string
   layers: string
@@ -47,7 +90,7 @@ export type WmsConfig = {
   transparent?: boolean
 }
 
-export type XyzConfig = {
+export type XyzConfig = LayerDisplayConfig & {
   type: "xyz"
   url: string
   attribution?: string

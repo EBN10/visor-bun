@@ -8,12 +8,6 @@ export default function AdminSignInPage() {
         routing="path" 
         signUpUrl={undefined}
         forceRedirectUrl="/admin"
-        appearance={{
-          elements: {
-            rootBox: "mx-auto",
-            card: "shadow-lg",
-          },
-        }}
       />
     </div>
   );

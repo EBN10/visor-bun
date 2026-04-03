@@ -16,4 +16,5 @@ export async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Prom
 export const qk = {
   catalog: ["catalog"] as const,
   vectorLayer: (id: string, bbox: string, z: number) => ["vector", id, bbox, z] as const,
+  layerExtent: (id: string) => ["layer-extent", id] as const,
 }
