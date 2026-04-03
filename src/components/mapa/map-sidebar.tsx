@@ -37,15 +37,6 @@ export function MapSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </span>
             </div>
           </div>
-
-          <div className="mt-3 rounded-xl border border-sidebar-border/70 bg-background/60 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Operación
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-sidebar-foreground/80">
-              Busca, activa y centra capas sin perder el contexto del mapa.
-            </p>
-          </div>
         </a>
       </SidebarHeader>
       <SidebarSeparator className="my-3" />
@@ -54,14 +45,6 @@ export function MapSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <ArbolCapas />
         </div>
       </SidebarContent>
-      <SidebarFooter className="px-2 pb-2">
-        <div className="flex items-center justify-between rounded-xl border border-sidebar-border/70 bg-background/55 px-3 py-2">
-          <span className="text-xs text-muted-foreground">Visor SDE</span>
-          <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            IDE
-          </span>
-        </div>
-      </SidebarFooter>
     </Sidebar>
   )
 }
