@@ -184,7 +184,7 @@ function uploadGeoJson(
     };
 
     xhr.open("POST", "/api/admin/qgis/upload");
-    xhr.responseType = "json";
+    xhr.responseType = "text";
 
     xhr.onloadstart = () => {
       onStateChange({ status: "uploading", progress: 0 });
@@ -211,10 +211,7 @@ function uploadGeoJson(
     };
 
     xhr.onload = () => {
-      const response: unknown =
-        xhr.response && typeof xhr.response === "object"
-          ? xhr.response
-          : safeParseJson(xhr.responseText);
+      const response = getXhrResponse(xhr);
 
       if (xhr.status >= 200 && xhr.status < 300) {
         if (isUploadResponse(response)) {
@@ -230,15 +227,34 @@ function uploadGeoJson(
         return;
       }
 
-      const errorMessage =
-        (isUploadErrorResponse(response) ? response.error : undefined) ??
-        `Error en la subida con estado ${xhr.status}`;
+      const errorMessage = getUploadRequestErrorMessage(xhr, response);
 
       reject(new Error(errorMessage));
     };
 
     xhr.send(formData);
   });
+}
+
+function getXhrResponse(xhr: XMLHttpRequest) {
+  if (xhr.response && typeof xhr.response === "object") {
+    return xhr.response;
+  }
+
+  const rawResponse =
+    typeof xhr.response === "string"
+      ? xhr.response
+      : getSafeResponseText(xhr);
+
+  return safeParseJson(rawResponse);
+}
+
+function getSafeResponseText(xhr: XMLHttpRequest) {
+  try {
+    return xhr.responseText;
+  } catch {
+    return "";
+  }
 }
 
 function safeParseJson(text: string) {
@@ -249,6 +265,21 @@ function safeParseJson(text: string) {
   } catch {
     return null;
   }
+}
+
+function getUploadRequestErrorMessage(
+  xhr: XMLHttpRequest,
+  response: unknown,
+) {
+  if (isUploadErrorResponse(response) && response.error) {
+    return response.error;
+  }
+
+  if (xhr.status === 413) {
+    return "El archivo supera el limite de carga del servidor. Si en local funciona y en produccion no, aumenta client_max_body_size en el proxy o Nginx.";
+  }
+
+  return `Error en la subida con estado ${xhr.status}`;
 }
 
 function getErrorMessage(error: unknown, fallback: string) {

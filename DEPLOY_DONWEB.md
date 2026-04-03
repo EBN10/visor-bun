@@ -147,6 +147,7 @@ Contenido sugerido:
 server {
     listen 80;
     server_name tu-dominio.com www.tu-dominio.com;
+    client_max_body_size 50M;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -162,6 +163,8 @@ server {
 ```
 
 Si usás otro `APP_PORT`, cambiá `3000` por ese valor.
+
+`client_max_body_size` es importante si vas a importar GeoJSON u otros archivos grandes desde el panel de admin. Si no lo definís, Nginx puede responder `413 Request Entity Too Large` aunque en local funcione bien.
 
 Activar la config:
 
@@ -245,6 +248,11 @@ El dominio responde pero Clerk falla:
 - revisar claves `pk_live_` y `sk_live_`
 - revisar dominio permitido en Clerk
 - revisar que el proxy mantenga `Host` y `X-Forwarded-Proto`
+
+La importación de GeoJSON funciona en local pero en producción da `413`:
+
+- revisar el bloque `server` de Nginx y subir `client_max_body_size` a un valor mayor que tus archivos
+- recargar Nginx con `sudo nginx -t && sudo systemctl reload nginx`
 
 Querés recrear el entorno completo:
 
