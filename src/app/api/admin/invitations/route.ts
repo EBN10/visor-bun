@@ -66,9 +66,11 @@ export async function POST(request: Request) {
       );
     }
 
+    const normalizedEmail = String(emailAddress).trim().toLowerCase();
+
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(emailAddress)) {
+    if (!emailRegex.test(normalizedEmail)) {
       return NextResponse.json(
         { error: "Formato de email inválido" },
         { status: 400 }
@@ -83,9 +85,42 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create invitation with role in metadata
+    const existingUsers = await client.users.getUserList({
+      emailAddress: [normalizedEmail],
+      limit: 1,
+    });
+
+    if (existingUsers.totalCount > 0) {
+      return NextResponse.json(
+        { error: "Ya existe un usuario con este email" },
+        { status: 400 }
+      );
+    }
+
+    const existingInvitations = await client.invitations.getInvitationList({
+      query: normalizedEmail,
+      limit: 100,
+    });
+
+    const matchingInvitations = existingInvitations.data.filter(
+      (invitation) => invitation.emailAddress.toLowerCase() === normalizedEmail
+    );
+
+    const hasPendingInvitation = matchingInvitations.some(
+      (invitation) => invitation.status === "pending"
+    );
+
+    if (hasPendingInvitation) {
+      return NextResponse.json(
+        { error: "Ya existe una invitación pendiente para este email" },
+        { status: 400 }
+      );
+    }
+
+    // Allow re-inviting when only historical invitations exist
     const invitation = await client.invitations.createInvitation({
-      emailAddress,
+      emailAddress: normalizedEmail,
+      ignoreExisting: matchingInvitations.length > 0,
       publicMetadata: { role },
     });
 
@@ -126,9 +161,15 @@ export async function POST(request: Request) {
       const clerkError = error as { errors: Array<{ message: string; code: string }> };
       if (clerkError.errors && clerkError.errors.length > 0) {
         const firstError = clerkError.errors[0];
-        if (firstError?.code === 'form_identifier_exists') {
+        if (firstError?.code === 'duplicate_record') {
           return NextResponse.json(
             { error: "Ya existe una invitación pendiente para este email" },
+            { status: 400 }
+          );
+        }
+        if (firstError?.code === 'form_identifier_exists') {
+          return NextResponse.json(
+            { error: "Ya existe un usuario con este email" },
             { status: 400 }
           );
         }

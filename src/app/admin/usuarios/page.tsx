@@ -236,6 +236,8 @@ export default function UsuariosPage() {
         return <Badge variant="secondary">Pendiente</Badge>
       case "accepted":
         return <Badge variant="default">Aceptada</Badge>
+      case "expired":
+        return <Badge variant="outline">Expirada</Badge>
       case "revoked":
         return <Badge variant="destructive">Revocada</Badge>
       default:
