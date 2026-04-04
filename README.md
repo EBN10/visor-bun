@@ -6,32 +6,32 @@ Bienvenido a la documentación de **Visor Bun**. Este proyecto es una aplicació
 
 Hemos seleccionado cuidadosamente cada herramienta para maximizar el rendimiento, la experiencia de desarrollo (DX) y la escalabilidad del proyecto. A continuación explicamos el "por qué" de cada elección:
 
-- **[Bun](https://bun.sh/)**: 
-  - *¿Por qué?* Elegido como nuestro entorno de ejecución y gestor de paquetes principal por su velocidad superior comparada con Node.js. Acelera drásticamente la instalación de dependencias y el inicio del servidor de desarrollo.
+- **[Bun](https://bun.sh/)**:
+  - _¿Por qué?_ Elegido como nuestro entorno de ejecución y gestor de paquetes principal por su velocidad superior comparada con Node.js. Acelera drásticamente la instalación de dependencias y el inicio del servidor de desarrollo.
 
-- **[Next.js 15](https://nextjs.org/)**: 
-  - *¿Por qué?* El estándar de industria para aplicaciones React. Utilizamos la versión 15 con **App Router** para aprovechar las últimas capacidades de React Server Components (RSC), mejorando el rendimiento de carga inicial y el SEO.
+- **[Next.js 15](https://nextjs.org/)**:
+  - _¿Por qué?_ El estándar de industria para aplicaciones React. Utilizamos la versión 15 con **App Router** para aprovechar las últimas capacidades de React Server Components (RSC), mejorando el rendimiento de carga inicial y el SEO.
 
-- **[TypeScript](https://www.typescriptlang.org/)**: 
-  - *¿Por qué?* Indispensable para un código robusto y mantenible a largo plazo. Nos permite detectar errores antes de ejecutar el código y proporciona un excelente autocompletado, lo que acelera el desarrollo.
+- **[TypeScript](https://www.typescriptlang.org/)**:
+  - _¿Por qué?_ Indispensable para un código robusto y mantenible a largo plazo. Nos permite detectar errores antes de ejecutar el código y proporciona un excelente autocompletado, lo que acelera el desarrollo.
 
-- **[Tailwind CSS 4](https://tailwindcss.com/)**: 
-  - *¿Por qué?* Para el estilizado. La versión 4 ofrece un motor de compilación instantáneo y una configuración simplificada. Nos permite construir interfaces modernas rápidamente sin salir del HTML.
+- **[Tailwind CSS 4](https://tailwindcss.com/)**:
+  - _¿Por qué?_ Para el estilizado. La versión 4 ofrece un motor de compilación instantáneo y una configuración simplificada. Nos permite construir interfaces modernas rápidamente sin salir del HTML.
 
-- **[Shadcn/ui](https://ui.shadcn.com/)** (sobre Radix UI): 
-  - *¿Por qué?* No es una librería de componentes tradicional, sino una colección de componentes que copiamos y pegamos. Esto nos da control total sobre el código, asegurando accesibilidad (a11y) y permitiendo una personalización profunda sin luchar contra la librería.
+- **[Shadcn/ui](https://ui.shadcn.com/)** (sobre Radix UI):
+  - _¿Por qué?_ No es una librería de componentes tradicional, sino una colección de componentes que copiamos y pegamos. Esto nos da control total sobre el código, asegurando accesibilidad (a11y) y permitiendo una personalización profunda sin luchar contra la librería.
 
-- **[Drizzle ORM](https://orm.drizzle.team/)**: 
-  - *¿Por qué?* Elegido sobre Prisma por ser más ligero, tener mejor rendimiento (especialmente en entornos serverless/edge) y ofrecer una experiencia más cercana a SQL pero con la seguridad de tipos de TypeScript.
+- **[Drizzle ORM](https://orm.drizzle.team/)**:
+  - _¿Por qué?_ Elegido sobre Prisma por ser más ligero, tener mejor rendimiento (especialmente en entornos serverless/edge) y ofrecer una experiencia más cercana a SQL pero con la seguridad de tipos de TypeScript.
 
-- **[React Leaflet](https://react-leaflet.js.org/)**: 
-  - *¿Por qué?* Para la visualización de mapas. Es una abstracción de React sobre Leaflet, una de las librerías de mapas más ligeras, maduras y de código abierto disponibles.
+- **[React Leaflet](https://react-leaflet.js.org/)**:
+  - _¿Por qué?_ Para la visualización de mapas. Es una abstracción de React sobre Leaflet, una de las librerías de mapas más ligeras, maduras y de código abierto disponibles.
 
-- **[Clerk](https://clerk.com/)**: 
-  - *¿Por qué?* Para la autenticación. Nos permite implementar un sistema de login seguro, gestión de sesiones y perfiles de usuario en minutos, delegando la complejidad de la seguridad a expertos.
+- **[Clerk](https://clerk.com/)**:
+  - _¿Por qué?_ Para la autenticación. Nos permite implementar un sistema de login seguro, gestión de sesiones y perfiles de usuario en minutos, delegando la complejidad de la seguridad a expertos.
 
-- **[TanStack Query (React Query)](https://tanstack.com/query/latest)**: 
-  - *¿Por qué?* Para la gestión del estado del servidor. Simplifica enormemente la obtención de datos, el caché, la sincronización y la actualización de la UI en segundo plano.
+- **[TanStack Query (React Query)](https://tanstack.com/query/latest)**:
+  - _¿Por qué?_ Para la gestión del estado del servidor. Simplifica enormemente la obtención de datos, el caché, la sincronización y la actualización de la UI en segundo plano.
 
 ## 🛠️ Requisitos Previos
 
@@ -46,6 +46,7 @@ Antes de comenzar, asegúrate de tener instalado en tu sistema:
 Sigue estos pasos para levantar el proyecto en tu entorno local:
 
 1. **Clonar el repositorio**:
+
    ```bash
    git clone <url-del-repositorio>
    cd visor-bun
@@ -53,24 +54,29 @@ Sigue estos pasos para levantar el proyecto en tu entorno local:
 
 2. **Instalar dependencias**:
    Utilizamos Bun para una instalación ultra-rápida.
+
    ```bash
    bun install
    ```
 
 3. **Configurar variables de entorno**:
    Copia el archivo de ejemplo `.env.example` a un nuevo archivo `.env` y rellena las claves necesarias.
+
    ```bash
    cp .env.example .env
    ```
+
    **Importante**: Los valores `POSTGRES_*` del ejemplo ya coinciden con `compose.yaml`. Si cambias usuario, password, base o puerto, actualiza también `DATABASE_URL`.
    Si ya tienes otro PostgreSQL escuchando en `5432`, cambia `POSTGRES_PORT` antes de levantar el contenedor.
 
 4. **Levantar PostgreSQL + PostGIS**:
+
    ```bash
    bun run db:start
    ```
 
 5. **Aplicar migraciones**:
+
    ```bash
    bun run db:migrate
    ```
@@ -79,19 +85,28 @@ Sigue estos pasos para levantar el proyecto en tu entorno local:
    Completa en `.env` las claves de autenticación necesarias (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) antes de entrar al panel administrativo.
 
 7. **Uploads grandes de GeoJSON en Vercel**:
-   Si despliegas en Vercel y vas a importar GeoJSON pesados desde el panel de admin, crea un store de **Vercel Blob** en el mismo proyecto. El panel detecta automáticamente ese entorno y usa Blob para evitar el límite de 4.5 MB de Vercel Functions. En desarrollo local o en despliegues propios como Docker/Dokploy/VPS, el flujo vuelve a la subida directa al servidor. En esos entornos, si hay proxy inverso delante de la app, asegúrate de subir también su límite de upload/body size para no recibir `413`.
+   Si despliegas en Vercel y vas a importar GeoJSON pesados desde el panel de admin, crea un store de **Vercel Blob** en el mismo proyecto. Por defecto el panel usa `QGIS_UPLOAD_TRANSPORT=auto`: en Vercel con `BLOB_READ_WRITE_TOKEN` pasa a Blob y evita el límite de 4.5 MB de Vercel Functions; fuera de Vercel vuelve a la subida directa al servidor.
+
+   También puedes controlarlo manualmente:
+   - `QGIS_UPLOAD_TRANSPORT=direct`: desactiva Blob y usa siempre subida directa.
+   - `QGIS_UPLOAD_TRANSPORT=blob`: fuerza Blob incluso si mañana despliegas en Docker/Dokploy/VPS, siempre que mantengas `BLOB_READ_WRITE_TOKEN`.
+
+   Si usas `direct` en Dokploy/VPS, y hay proxy inverso delante de la app, asegúrate de subir también su límite de upload/body size para no recibir `413`.
 
 ## 💻 Uso
 
 ### Servidor de Desarrollo
+
 Para iniciar la aplicación en modo de desarrollo con recarga en caliente (HMR):
 
 ```bash
 bun dev
 ```
+
 La aplicación estará disponible en `http://localhost:3000`.
 
 ### Gestión de Base de Datos
+
 Comandos útiles para manejar la base de datos:
 
 - `bun run db:start`: levanta PostgreSQL 17 + PostGIS 3.5 con Docker Compose y espera a que esté saludable.
@@ -108,12 +123,14 @@ La imagen Docker ya instala PostGIS y ejecuta `CREATE EXTENSION IF NOT EXISTS po
 Si vienes de una instalación manual anterior y quieres alinear tu entorno con estas migraciones, lo más seguro es recrear la base local con `bun run db:reset` y luego `bun run db:setup`.
 
 ### Linting y Formateo
+
 Mantén la calidad del código con:
 
 - `bun run lint`: Busca errores de linting.
 - `bun run format:check`: Verifica el formato del código con Prettier.
 
 ### Producción
+
 Para construir y ejecutar la aplicación optimizada para producción:
 
 ```bash
@@ -136,4 +153,5 @@ Un vistazo rápido a la organización de carpetas:
 - `/drizzle`: Archivos de configuración y migraciones de la base de datos.
 
 ---
-*Documentación generada para el proyecto Visor Bun.*
+
+_Documentación generada para el proyecto Visor Bun._

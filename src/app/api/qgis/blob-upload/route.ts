@@ -5,6 +5,7 @@ import {
   GEOJSON_ALLOWED_CONTENT_TYPES,
   MAX_GEOJSON_UPLOAD_SIZE_BYTES,
 } from "~/lib/qgis-upload";
+import { resolveGeoJsonUploadCapabilities } from "~/server/qgis/upload-capabilities";
 
 function getFriendlyErrorMessage(error: unknown) {
   if (!(error instanceof Error)) {
@@ -22,6 +23,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   const body = (await request.json()) as HandleUploadBody;
 
   try {
+    const uploadCapabilities = resolveGeoJsonUploadCapabilities();
+
+    if (uploadCapabilities.transport !== "blob") {
+      throw new Error(
+        "La subida por Blob esta deshabilitada. Ajusta QGIS_UPLOAD_TRANSPORT si quieres activarla.",
+      );
+    }
+
     const jsonResponse = await handleUpload({
       body,
       request,

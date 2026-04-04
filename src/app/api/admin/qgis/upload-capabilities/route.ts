@@ -1,43 +1,21 @@
 import { NextResponse } from "next/server";
-import {
-  MAX_GEOJSON_UPLOAD_SIZE_BYTES,
-  VERCEL_FUNCTION_PAYLOAD_LIMIT_BYTES,
-  type GeoJsonUploadTransport,
-} from "~/lib/qgis-upload";
+import { resolveGeoJsonUploadCapabilities } from "~/server/qgis/upload-capabilities";
 
-type UploadStrategy = "vercel-blob" | "vercel-direct" | "server-direct";
-
-function resolveUploadCapabilities(): {
-  maxFileSizeBytes: number | null;
-  strategy: UploadStrategy;
-  transport: GeoJsonUploadTransport;
-} {
-  const isVercel = process.env.VERCEL === "1";
-  const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
-
-  if (isVercel && hasBlobToken) {
-    return {
-      transport: "blob",
-      maxFileSizeBytes: MAX_GEOJSON_UPLOAD_SIZE_BYTES,
-      strategy: "vercel-blob",
-    };
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
   }
 
-  if (isVercel) {
-    return {
-      transport: "direct",
-      maxFileSizeBytes: VERCEL_FUNCTION_PAYLOAD_LIMIT_BYTES,
-      strategy: "vercel-direct",
-    };
-  }
-
-  return {
-    transport: "direct",
-    maxFileSizeBytes: null,
-    strategy: "server-direct",
-  };
+  return "No se pudo resolver la configuracion de uploads";
 }
 
 export async function GET() {
-  return NextResponse.json(resolveUploadCapabilities());
+  try {
+    return NextResponse.json(resolveGeoJsonUploadCapabilities());
+  } catch (error) {
+    return NextResponse.json(
+      { error: getErrorMessage(error) },
+      { status: 400 },
+    );
+  }
 }

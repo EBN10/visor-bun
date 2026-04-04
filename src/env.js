@@ -7,10 +7,12 @@ export const env = createEnv({
    * isn't built with invalid env vars.
    */
   server: {
+    BLOB_READ_WRITE_TOKEN: z.string().optional(),
     DATABASE_URL: z.string().url(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
+    QGIS_UPLOAD_TRANSPORT: z.enum(["auto", "direct", "blob"]).default("auto"),
   },
 
   /**
@@ -27,8 +29,10 @@ export const env = createEnv({
    * middlewares) or client-side so we need to destruct manually.
    */
   runtimeEnv: {
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
+    QGIS_UPLOAD_TRANSPORT: process.env.QGIS_UPLOAD_TRANSPORT,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**

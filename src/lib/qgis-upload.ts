@@ -1,4 +1,5 @@
 export type GeoJsonUploadTransport = "blob" | "direct";
+export type GeoJsonUploadMode = "auto" | GeoJsonUploadTransport;
 
 export const GEOJSON_ALLOWED_CONTENT_TYPES = [
   "application/geo+json",

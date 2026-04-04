@@ -17,6 +17,7 @@ import { fetchJson, qk } from "~/lib/api";
 import {
   BLOB_MULTIPART_UPLOAD_THRESHOLD_BYTES,
   buildGeoJsonBlobPath,
+  type GeoJsonUploadMode,
   type GeoJsonUploadTransport,
 } from "~/lib/qgis-upload";
 import { Badge } from "~/components/ui/badge";
@@ -81,7 +82,8 @@ type UploadErrorResponse = {
 
 type UploadCapabilities = {
   maxFileSizeBytes: number | null;
-  strategy: "vercel-blob" | "vercel-direct" | "server-direct";
+  mode: GeoJsonUploadMode;
+  strategy: "blob" | "vercel-direct" | "server-direct";
   transport: GeoJsonUploadTransport;
 };
 
@@ -414,6 +416,12 @@ export default function QgisImportPage() {
   const isBusy = isBatchRunning || activeUploadId !== null;
   const isUploadTransportLoading =
     uploadCapabilitiesQuery.isLoading || uploadCapabilitiesQuery.isRefetching;
+  const uploadCapabilitiesError = uploadCapabilitiesQuery.isError
+    ? getErrorMessage(
+        uploadCapabilitiesQuery.error,
+        "No se pudo determinar el modo de carga del entorno.",
+      )
+    : null;
   const hasPendingInvalidItems = items.some(
     (item) => item.status === "pending" && (!item.name.trim() || !item.groupId),
   );
@@ -744,17 +752,18 @@ export default function QgisImportPage() {
             </p>
             {uploadCapabilitiesQuery.isSuccess && (
               <p className="text-muted-foreground text-sm">
-                {uploadCapabilitiesQuery.data.strategy === "vercel-blob"
-                  ? `Este deployment usa Vercel Blob para archivos grandes. Limite actual: ${formatFileSize(uploadCapabilitiesQuery.data.maxFileSizeBytes ?? 0)}.`
+                {uploadCapabilitiesQuery.data.strategy === "blob"
+                  ? uploadCapabilitiesQuery.data.mode === "blob"
+                    ? `La subida por Blob fue forzada por configuracion. Este modo tambien te sirve si mañana migras a Dokploy o a una VPS y quieres mantener el archivo fuera del request al servidor. Limite actual: ${formatFileSize(uploadCapabilitiesQuery.data.maxFileSizeBytes ?? 0)}.`
+                    : `Este deployment usa Vercel Blob para archivos grandes. Limite actual: ${formatFileSize(uploadCapabilitiesQuery.data.maxFileSizeBytes ?? 0)}.`
                   : uploadCapabilitiesQuery.data.strategy === "vercel-direct"
                     ? `Este deployment corre en Vercel sin Blob configurado. Las subidas directas quedan limitadas a ${formatFileSize(uploadCapabilitiesQuery.data.maxFileSizeBytes ?? 0)}.`
                     : "Este entorno usa subida directa al servidor, util para desarrollo local y futuros deploys en VPS. Si hay proxy inverso, recuerda ajustar su limite de body/upload."}
-               </p>
-             )}
+              </p>
+            )}
             {uploadCapabilitiesQuery.isError && (
               <p className="text-destructive text-sm">
-                No se pudo determinar el modo de carga del entorno. Recarga la
-                pagina e intenta nuevamente.
+                {uploadCapabilitiesError}
               </p>
             )}
           </div>
