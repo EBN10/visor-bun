@@ -78,6 +78,9 @@ Sigue estos pasos para levantar el proyecto en tu entorno local:
 6. **Configurar Clerk**:
    Completa en `.env` las claves de autenticación necesarias (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) antes de entrar al panel administrativo.
 
+7. **Uploads grandes de GeoJSON en Vercel**:
+   Si despliegas en Vercel y vas a importar GeoJSON pesados desde el panel de admin, crea un store de **Vercel Blob** en el mismo proyecto. El panel detecta automáticamente ese entorno y usa Blob para evitar el límite de 4.5 MB de Vercel Functions. En desarrollo local o en despliegues propios como Docker/Dokploy/VPS, el flujo vuelve a la subida directa al servidor. En esos entornos, si hay proxy inverso delante de la app, asegúrate de subir también su límite de upload/body size para no recibir `413`.
+
 ## 💻 Uso
 
 ### Servidor de Desarrollo

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { upload as uploadBlob } from "@vercel/blob/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -13,6 +14,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson, qk } from "~/lib/api";
+import {
+  BLOB_MULTIPART_UPLOAD_THRESHOLD_BYTES,
+  buildGeoJsonBlobPath,
+  type GeoJsonUploadTransport,
+} from "~/lib/qgis-upload";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -71,6 +77,12 @@ type UploadResponse = {
 
 type UploadErrorResponse = {
   error?: string;
+};
+
+type UploadCapabilities = {
+  maxFileSizeBytes: number | null;
+  strategy: "vercel-blob" | "vercel-direct" | "server-direct";
+  transport: GeoJsonUploadTransport;
 };
 
 const GEOJSON_FILE_REGEX = /\.(geojson|json)$/i;
@@ -164,7 +176,71 @@ function getAggregateProgress(items: UploadItem[]) {
   return Math.round(total / items.length);
 }
 
-function uploadGeoJson(
+async function uploadGeoJson(
+  item: Pick<UploadItem, "file" | "name" | "groupId">,
+  transport: GeoJsonUploadTransport,
+  maxFileSizeBytes: number | null,
+  onStateChange: (state: Pick<UploadItem, "status" | "progress">) => void,
+) {
+  if (maxFileSizeBytes !== null && item.file.size > maxFileSizeBytes) {
+    throw new Error(
+      `El archivo supera el limite configurado de ${formatFileSize(maxFileSizeBytes)} para este deployment.`,
+    );
+  }
+
+  if (transport === "blob") {
+    return uploadGeoJsonViaBlob(item, onStateChange);
+  }
+
+  return uploadGeoJsonDirect(item, onStateChange);
+}
+
+async function uploadGeoJsonViaBlob(
+  item: Pick<UploadItem, "file" | "name" | "groupId">,
+  onStateChange: (state: Pick<UploadItem, "status" | "progress">) => void,
+) {
+  onStateChange({ status: "uploading", progress: 0 });
+
+  try {
+    const blob = await uploadBlob(
+      buildGeoJsonBlobPath(item.file.name),
+      item.file,
+      {
+        access: "private",
+        handleUploadUrl: "/api/qgis/blob-upload",
+        multipart: item.file.size >= BLOB_MULTIPART_UPLOAD_THRESHOLD_BYTES,
+        onUploadProgress: ({ percentage }) => {
+          onStateChange({
+            status: "uploading",
+            progress: Math.max(5, Math.round(percentage)),
+          });
+        },
+      },
+    );
+
+    onStateChange({ status: "processing", progress: 100 });
+
+    return fetchJson<UploadResponse>("/api/admin/qgis/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        blobPathname: blob.pathname,
+        name: item.name,
+        groupId: item.groupId,
+        originalFileName: item.file.name,
+      }),
+    });
+  } catch (error) {
+    throw new Error(
+      getBlobUploadErrorMessage(error) ??
+        "No se pudo subir el archivo a Vercel Blob",
+    );
+  }
+}
+
+function uploadGeoJsonDirect(
   item: Pick<UploadItem, "file" | "name" | "groupId">,
   onStateChange: (state: Pick<UploadItem, "status" | "progress">) => void,
 ) {
@@ -236,15 +312,21 @@ function uploadGeoJson(
   });
 }
 
+function getBlobUploadErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  return error.message;
+}
+
 function getXhrResponse(xhr: XMLHttpRequest) {
   if (xhr.response && typeof xhr.response === "object") {
     return xhr.response;
   }
 
   const rawResponse =
-    typeof xhr.response === "string"
-      ? xhr.response
-      : getSafeResponseText(xhr);
+    typeof xhr.response === "string" ? xhr.response : getSafeResponseText(xhr);
 
   return safeParseJson(rawResponse);
 }
@@ -267,10 +349,7 @@ function safeParseJson(text: string) {
   }
 }
 
-function getUploadRequestErrorMessage(
-  xhr: XMLHttpRequest,
-  response: unknown,
-) {
+function getUploadRequestErrorMessage(xhr: XMLHttpRequest, response: unknown) {
   if (isUploadErrorResponse(response) && response.error) {
     return response.error;
   }
@@ -308,6 +387,12 @@ export default function QgisImportPage() {
     queryKey: ["admin", "layer-groups"],
     queryFn: () => fetchJson<LayerGroup[]>("/api/admin/layer-groups"),
   });
+  const uploadCapabilitiesQuery = useQuery({
+    queryKey: ["admin", "qgis-upload-capabilities"],
+    queryFn: () =>
+      fetchJson<UploadCapabilities>("/api/admin/qgis/upload-capabilities"),
+  });
+  const uploadTransport = uploadCapabilitiesQuery.data?.transport;
 
   const stats = useMemo(() => {
     const pending = items.filter((item) => item.status === "pending").length;
@@ -327,6 +412,8 @@ export default function QgisImportPage() {
   }, [items]);
 
   const isBusy = isBatchRunning || activeUploadId !== null;
+  const isUploadTransportLoading =
+    uploadCapabilitiesQuery.isLoading || uploadCapabilitiesQuery.isRefetching;
   const hasPendingInvalidItems = items.some(
     (item) => item.status === "pending" && (!item.name.trim() || !item.groupId),
   );
@@ -438,6 +525,13 @@ export default function QgisImportPage() {
     const currentItem = itemsRef.current.find((item) => item.id === itemId);
     if (!currentItem) return false;
 
+    if (!uploadTransport) {
+      toast.error(
+        "Todavia no se pudo determinar el modo de carga del servidor",
+      );
+      return false;
+    }
+
     const name = currentItem.name.trim();
     if (!name || !currentItem.groupId) {
       updateItem(itemId, (item) => ({
@@ -465,6 +559,8 @@ export default function QgisImportPage() {
           name,
           groupId: currentItem.groupId,
         },
+        uploadTransport,
+        uploadCapabilitiesQuery.data?.maxFileSizeBytes ?? null,
         (state) => {
           updateItem(itemId, (item) => ({
             ...item,
@@ -646,6 +742,21 @@ export default function QgisImportPage() {
               Puedes seleccionar 10 o más archivos. Cada uno quedará en cola con
               su propio nombre de capa, grupo y estado de importación.
             </p>
+            {uploadCapabilitiesQuery.isSuccess && (
+              <p className="text-muted-foreground text-sm">
+                {uploadCapabilitiesQuery.data.strategy === "vercel-blob"
+                  ? `Este deployment usa Vercel Blob para archivos grandes. Limite actual: ${formatFileSize(uploadCapabilitiesQuery.data.maxFileSizeBytes ?? 0)}.`
+                  : uploadCapabilitiesQuery.data.strategy === "vercel-direct"
+                    ? `Este deployment corre en Vercel sin Blob configurado. Las subidas directas quedan limitadas a ${formatFileSize(uploadCapabilitiesQuery.data.maxFileSizeBytes ?? 0)}.`
+                    : "Este entorno usa subida directa al servidor, util para desarrollo local y futuros deploys en VPS. Si hay proxy inverso, recuerda ajustar su limite de body/upload."}
+               </p>
+             )}
+            {uploadCapabilitiesQuery.isError && (
+              <p className="text-destructive text-sm">
+                No se pudo determinar el modo de carga del entorno. Recarga la
+                pagina e intenta nuevamente.
+              </p>
+            )}
           </div>
 
           {items.length > 0 && (
@@ -675,12 +786,19 @@ export default function QgisImportPage() {
                   <Button
                     type="button"
                     onClick={() => runImport()}
-                    disabled={isBusy || stats.ready === 0}
+                    disabled={
+                      isBusy ||
+                      stats.ready === 0 ||
+                      isUploadTransportLoading ||
+                      !uploadTransport
+                    }
                   >
                     {isBusy ? <Loader2 className="animate-spin" /> : <Upload />}
-                    {isBatchRunning
-                      ? "Importando cola..."
-                      : "Importar pendientes"}
+                    {isUploadTransportLoading
+                      ? "Preparando carga..."
+                      : isBatchRunning
+                        ? "Importando cola..."
+                        : "Importar pendientes"}
                   </Button>
                 </div>
               </div>
@@ -773,7 +891,11 @@ export default function QgisImportPage() {
                             variant="outline"
                             onClick={() => runImport([item.id])}
                             disabled={
-                              isBusy || !item.name.trim() || !item.groupId
+                              isBusy ||
+                              isUploadTransportLoading ||
+                              !uploadTransport ||
+                              !item.name.trim() ||
+                              !item.groupId
                             }
                           >
                             {item.status === "error" ? (
