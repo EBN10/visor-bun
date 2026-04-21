@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Feature, FeatureCollection, GeoJsonObject } from "geojson";
 import L from "leaflet";
@@ -12,14 +19,16 @@ import {
   useMapEvents,
   WMSTileLayer,
 } from "react-leaflet";
-import {
-  Minus,
-  Navigation,
-  Plus,
-  RotateCcw,
-} from "lucide-react";
+import { Minus, Navigation, Plus, RotateCcw } from "lucide-react";
 import { useLayers } from "~/components/layers/provider";
 import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { fetchJson, qk } from "~/lib/api";
 import {
   buildPopupHtml,
@@ -34,12 +43,28 @@ import {
   viewportToQuery,
 } from "~/lib/map-layer-utils";
 import type { LayerNodeMeta } from "~/components/layers/provider";
-import type { VectorConfig, WmsConfig, XyzConfig } from "~/server/db/schema";
+import type {
+  LayerMetadata,
+  VectorConfig,
+  WmsConfig,
+  XyzConfig,
+} from "~/server/db/schema";
 
 const MAP_CENTER: [number, number] = [-27.909423151558293, -62.85220337225053];
 const MAP_ZOOM = 7;
 const VECTOR_LAYER_STALE_TIME = 2 * 60_000;
 const VECTOR_LAYER_GC_TIME = 10 * 60_000;
+
+const LAYER_METADATA_FIELDS: Array<{
+  key: keyof LayerMetadata;
+  label: string;
+}> = [
+  { key: "owner", label: "Autor/Propietario" },
+  { key: "createdDate", label: "Fecha de creación" },
+  { key: "updateFrequency", label: "Frecuencia de actualización" },
+  { key: "variableEncoding", label: "Codificación de variables" },
+  { key: "recordDescription", label: "Descripción general de los registros" },
+];
 
 const BASEMAPS = [
   {
@@ -102,6 +127,30 @@ function hasBringToFront(
     "bringToFront" in layer &&
     typeof (layer as { bringToFront?: unknown }).bringToFront === "function"
   );
+}
+
+function getMetadataValue(
+  metadata: LayerMetadata | undefined,
+  key: keyof LayerMetadata,
+) {
+  const value = metadata?.[key];
+
+  if (value === undefined || value === null) {
+    return "Sin especificar";
+  }
+
+  const text = String(value).trim();
+
+  return text.length > 0 ? text : "Sin especificar";
+}
+
+function buildMetadataRows(layer: LayerNodeMeta | null | undefined) {
+  const metadata = layer?.type === "layer" ? layer.config?.metadata : undefined;
+
+  return LAYER_METADATA_FIELDS.map((field) => ({
+    ...field,
+    value: getMetadataValue(metadata, field.key),
+  }));
 }
 
 function ScaleControl() {
@@ -303,6 +352,7 @@ function VectorLayer({
           layerNameRef.current,
           (feature.properties ?? {}) as Record<string, unknown>,
           configRef.current,
+          { layerId: layerMeta.id },
         );
 
         if (popupHtml) {
@@ -361,7 +411,7 @@ function VectorLayer({
         });
       },
     };
-  }, [getFeatureStyle]);
+  }, [getFeatureStyle, layerMeta.id]);
 
   useEffect(() => {
     const geoJsonLayer = L.geoJSON(undefined, geoJsonOptions).addTo(map);
@@ -397,8 +447,7 @@ function VectorLayer({
 
     geoJsonLayer.eachLayer((layer) => {
       const feature = (layer as L.Layer & { feature?: Feature }).feature;
-      const state =
-        selectedLayerRef.current === layer ? "selected" : "default";
+      const state = selectedLayerRef.current === layer ? "selected" : "default";
 
       applyResolvedStyle(layer, getFeatureStyle(feature, state));
     });
@@ -503,12 +552,12 @@ function LayerRenderer() {
 
 export default function ClientMap() {
   const { mapViewport, metas, registerMap, visibleLayerIds } = useLayers();
-  const [baseMapId] = useState<(typeof BASEMAPS)[number]["id"]>(
-    "carto-voyager",
-  );
+  const [baseMapId] =
+    useState<(typeof BASEMAPS)[number]["id"]>("carto-voyager");
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
   const [cursorPosition, setCursorPosition] = useState<LatLng | null>(null);
   const [currentZoom, setCurrentZoom] = useState(MAP_ZOOM);
+  const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
 
   const activeBaseMap =
     BASEMAPS.find((baseMap) => baseMap.id === baseMapId) ?? BASEMAPS[0];
@@ -533,9 +582,37 @@ export default function ClientMap() {
   const cursorLabel = cursorPosition
     ? `${cursorPosition.lat.toFixed(4)}, ${cursorPosition.lng.toFixed(4)}`
     : "Mueve el cursor sobre el mapa";
+  const metadataLayer = metadataLayerId ? metas[metadataLayerId] : null;
+  const metadataRows = useMemo(
+    () => buildMetadataRows(metadataLayer),
+    [metadataLayer],
+  );
+  const handleShellClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const trigger = target.closest<HTMLElement>("[data-layer-metadata-id]");
+
+      if (!trigger?.dataset.layerMetadataId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setMetadataLayerId(trigger.dataset.layerMetadataId);
+    },
+    [],
+  );
 
   return (
-    <div className="map-shell relative h-full overflow-hidden rounded-[24px]">
+    <div
+      className="map-shell relative h-full overflow-hidden rounded-[24px]"
+      onClickCapture={handleShellClick}
+    >
       <MapContainer
         center={MAP_CENTER}
         zoom={MAP_ZOOM}
@@ -576,7 +653,7 @@ export default function ClientMap() {
           )}
         </div>
 
-        <div className="pointer-events-auto absolute top-4 right-2 mt-3 grid w-[3rem] grid-rows-3 gap-2 rounded-[22px] ">
+        <div className="pointer-events-auto absolute top-4 right-2 mt-3 grid w-[3rem] grid-rows-3 gap-2 rounded-[22px]">
           <Button
             variant="outline"
             size="icon"
@@ -619,6 +696,40 @@ export default function ClientMap() {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={metadataLayer?.type === "layer"}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMetadataLayerId(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[min(90vh,36rem)] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Metadatos de la capa</DialogTitle>
+            <DialogDescription>
+              {metadataLayer?.type === "layer" ? metadataLayer.name : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            {metadataRows.map((row) => (
+              <div
+                key={row.key}
+                className="bg-muted/25 grid gap-1 rounded-md border p-3 sm:grid-cols-[11rem_1fr] sm:gap-4"
+              >
+                <span className="text-muted-foreground text-sm font-medium">
+                  {row.label}
+                </span>
+                <span className="text-sm break-words whitespace-pre-wrap">
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

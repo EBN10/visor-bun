@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "~/server/db";
-import { layerGroups, layers } from "~/server/db/schema";
+import { layerGroups, layers, type LayerMetadata } from "~/server/db/schema";
 import { getAuditActor, writeAuditLog } from "~/server/audit";
 
 export type ImportGeoJsonSource = "direct_upload" | "vercel_blob";
@@ -11,6 +11,7 @@ export type ImportGeoJsonLayerInput = {
   text: string;
   source: ImportGeoJsonSource;
   originalFileName?: string | null;
+  metadata?: LayerMetadata | null;
 };
 
 export type ImportGeoJsonLayerResult = {
@@ -68,6 +69,7 @@ export async function importGeoJsonLayer({
   text,
   source,
   originalFileName,
+  metadata,
 }: ImportGeoJsonLayerInput): Promise<ImportGeoJsonLayerResult> {
   let createdTableId: string | null = null;
 
@@ -215,6 +217,7 @@ export async function importGeoJsonLayer({
           geomColumn: "geom",
           srid: 4326,
           popupProps: Array.from(allProperties.keys()),
+          ...(metadata ? { metadata } : {}),
         },
       });
 

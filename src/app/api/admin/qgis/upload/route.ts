@@ -1,12 +1,14 @@
 import { del, get } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { importGeoJsonLayer } from "~/server/qgis/import-geojson";
+import type { LayerMetadata } from "~/server/db/schema";
 
 type BlobImportRequest = {
   blobPathname: string;
   name: string;
   groupId: string;
   originalFileName?: string;
+  metadata?: unknown;
 };
 
 type RequestInput = {
@@ -15,6 +17,7 @@ type RequestInput = {
   text: string;
   source: "direct_upload" | "vercel_blob";
   originalFileName?: string | null;
+  metadata?: LayerMetadata | null;
   cleanup?: () => Promise<void>;
 };
 
@@ -30,6 +33,55 @@ function isBlobImportRequest(value: unknown): value is BlobImportRequest {
     typeof value.name === "string" &&
     typeof value.groupId === "string"
   );
+}
+
+function parseMetadataValue(value: unknown): LayerMetadata | null {
+  if (typeof value === "string") {
+    if (!value.trim()) return null;
+
+    try {
+      return parseMetadataValue(JSON.parse(value) as unknown);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const metadata: LayerMetadata = {};
+  const fields: Array<keyof LayerMetadata> = [
+    "owner",
+    "createdDate",
+    "updateFrequency",
+    "variableEncoding",
+    "recordDescription",
+  ];
+
+  for (const field of fields) {
+    const rawValue = value[field];
+
+    if (rawValue === undefined || rawValue === null) {
+      continue;
+    }
+
+    if (
+      typeof rawValue !== "string" &&
+      typeof rawValue !== "number" &&
+      typeof rawValue !== "boolean"
+    ) {
+      continue;
+    }
+
+    const text = String(rawValue).trim();
+
+    if (text) {
+      metadata[field] = text;
+    }
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : null;
 }
 
 function getErrorMessage(error: unknown) {
@@ -63,6 +115,7 @@ async function readMultipartRequestInput(req: Request): Promise<RequestInput> {
   const file = formData.get("file");
   const layerName = formData.get("name");
   const groupId = formData.get("groupId");
+  const metadata = parseMetadataValue(formData.get("metadata"));
 
   if (
     !(file instanceof File) ||
@@ -78,6 +131,7 @@ async function readMultipartRequestInput(req: Request): Promise<RequestInput> {
     text: await file.text(),
     source: "direct_upload",
     originalFileName: file.name,
+    metadata,
   };
 }
 
@@ -88,7 +142,7 @@ async function readBlobRequestInput(req: Request): Promise<RequestInput> {
     throw new Error("blobPathname, name, and groupId are required");
   }
 
-  const { blobPathname, groupId, name, originalFileName } = body;
+  const { blobPathname, groupId, name, originalFileName, metadata } = body;
   const blob = await get(blobPathname, { access: "private" });
 
   if (!blob || blob.statusCode !== 200) {
@@ -103,6 +157,7 @@ async function readBlobRequestInput(req: Request): Promise<RequestInput> {
     text: await new Response(blob.stream).text(),
     source: "vercel_blob",
     originalFileName: originalFileName ?? blobPathname,
+    metadata: parseMetadataValue(metadata),
     cleanup: async () => {
       await del(blobPathname);
     },
@@ -122,6 +177,7 @@ export async function POST(req: Request) {
       text: input.text,
       source: input.source,
       originalFileName: input.originalFileName,
+      metadata: input.metadata,
     });
 
     if (cleanup) {

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   FileJson,
   Loader2,
   RefreshCcw,
@@ -40,6 +41,12 @@ import {
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Progress } from "~/components/ui/progress";
+import { Textarea } from "~/components/ui/textarea";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "~/components/ui/collapsible";
 import {
   Select,
   SelectContent,
@@ -60,12 +67,21 @@ type UploadStatus =
   | "success"
   | "error";
 
+type LayerMetadataForm = {
+  owner: string;
+  createdDate: string;
+  updateFrequency: string;
+  variableEncoding: string;
+  recordDescription: string;
+};
+
 type UploadItem = {
   id: string;
   fingerprint: string;
   file: File;
   name: string;
   groupId: string;
+  metadata: LayerMetadataForm;
   status: UploadStatus;
   progress: number;
   error?: string;
@@ -88,6 +104,14 @@ type UploadCapabilities = {
 };
 
 const GEOJSON_FILE_REGEX = /\.(geojson|json)$/i;
+
+const EMPTY_LAYER_METADATA: LayerMetadataForm = {
+  owner: "",
+  createdDate: "",
+  updateFrequency: "",
+  variableEncoding: "",
+  recordDescription: "",
+};
 
 function createQueueId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -114,6 +138,28 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function createEmptyLayerMetadata() {
+  return { ...EMPTY_LAYER_METADATA };
+}
+
+function cleanLayerMetadata(metadata: LayerMetadataForm) {
+  const entries: Array<[string, string]> = [];
+
+  for (const [key, value] of Object.entries(metadata)) {
+    const trimmedValue = value.trim();
+
+    if (trimmedValue) {
+      entries.push([key, trimmedValue]);
+    }
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function hasMetadataValues(metadata: LayerMetadataForm) {
+  return Object.values(metadata).some((value) => value.trim().length > 0);
 }
 
 function getStatusLabel(status: UploadStatus) {
@@ -179,7 +225,7 @@ function getAggregateProgress(items: UploadItem[]) {
 }
 
 async function uploadGeoJson(
-  item: Pick<UploadItem, "file" | "name" | "groupId">,
+  item: Pick<UploadItem, "file" | "name" | "groupId" | "metadata">,
   transport: GeoJsonUploadTransport,
   maxFileSizeBytes: number | null,
   onStateChange: (state: Pick<UploadItem, "status" | "progress">) => void,
@@ -198,7 +244,7 @@ async function uploadGeoJson(
 }
 
 async function uploadGeoJsonViaBlob(
-  item: Pick<UploadItem, "file" | "name" | "groupId">,
+  item: Pick<UploadItem, "file" | "name" | "groupId" | "metadata">,
   onStateChange: (state: Pick<UploadItem, "status" | "progress">) => void,
 ) {
   onStateChange({ status: "uploading", progress: 0 });
@@ -232,6 +278,7 @@ async function uploadGeoJsonViaBlob(
         name: item.name,
         groupId: item.groupId,
         originalFileName: item.file.name,
+        metadata: cleanLayerMetadata(item.metadata),
       }),
     });
   } catch (error) {
@@ -243,7 +290,7 @@ async function uploadGeoJsonViaBlob(
 }
 
 function uploadGeoJsonDirect(
-  item: Pick<UploadItem, "file" | "name" | "groupId">,
+  item: Pick<UploadItem, "file" | "name" | "groupId" | "metadata">,
   onStateChange: (state: Pick<UploadItem, "status" | "progress">) => void,
 ) {
   return new Promise<UploadResponse>((resolve, reject) => {
@@ -251,6 +298,10 @@ function uploadGeoJsonDirect(
     formData.append("file", item.file);
     formData.append("name", item.name);
     formData.append("groupId", item.groupId);
+    formData.append(
+      "metadata",
+      JSON.stringify(cleanLayerMetadata(item.metadata)),
+    );
 
     const xhr = new XMLHttpRequest();
     let movedToProcessing = false;
@@ -322,9 +373,9 @@ function getBlobUploadErrorMessage(error: unknown) {
   return error.message;
 }
 
-function getXhrResponse(xhr: XMLHttpRequest) {
+function getXhrResponse(xhr: XMLHttpRequest): unknown {
   if (xhr.response && typeof xhr.response === "object") {
-    return xhr.response;
+    return xhr.response as unknown;
   }
 
   const rawResponse =
@@ -435,6 +486,23 @@ export default function QgisImportPage() {
     );
   }
 
+  function updateItemMetadata(
+    itemId: string,
+    key: keyof LayerMetadataForm,
+    value: string,
+  ) {
+    updateItem(itemId, (current) => ({
+      ...current,
+      metadata: {
+        ...current.metadata,
+        [key]: value,
+      },
+      status: current.status === "error" ? "pending" : current.status,
+      progress: current.status === "error" ? 0 : current.progress,
+      error: undefined,
+    }));
+  }
+
   function queueFiles(files: FileList | null) {
     if (!files?.length) return;
 
@@ -466,6 +534,7 @@ export default function QgisImportPage() {
           file,
           name: getSuggestedLayerName(file.name),
           groupId: defaultGroupId,
+          metadata: createEmptyLayerMetadata(),
           status: "pending",
           progress: 0,
         });
@@ -566,6 +635,7 @@ export default function QgisImportPage() {
           file: currentItem.file,
           name,
           groupId: currentItem.groupId,
+          metadata: currentItem.metadata,
         },
         uploadTransport,
         uploadCapabilitiesQuery.data?.maxFileSizeBytes ?? null,
@@ -866,6 +936,7 @@ export default function QgisImportPage() {
                   isBusy ||
                   item.status === "success" ||
                   item.status === "processing";
+                const itemHasMetadata = hasMetadataValues(item.metadata);
 
                 return (
                   <div key={item.id} className="rounded-xl border p-4">
@@ -993,6 +1064,119 @@ export default function QgisImportPage() {
                         </Select>
                       </div>
                     </div>
+
+                    <Collapsible defaultOpen={itemHasMetadata}>
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="mt-4 w-full justify-between"
+                        >
+                          <span>Metadatos de la capa</span>
+                          <ChevronDown className="size-4" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-4 space-y-4 rounded-md border p-3">
+                        <div className="space-y-2">
+                          <Label htmlFor={`metadata-owner-${item.id}`}>
+                            Autor/Propietario
+                          </Label>
+                          <Input
+                            id={`metadata-owner-${item.id}`}
+                            value={item.metadata.owner}
+                            onChange={(event) =>
+                              updateItemMetadata(
+                                item.id,
+                                "owner",
+                                event.target.value,
+                              )
+                            }
+                            disabled={isLocked}
+                            placeholder="Dirección, organismo o equipo responsable"
+                          />
+                        </div>
+
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor={`metadata-created-${item.id}`}>
+                              Fecha de creación
+                            </Label>
+                            <Input
+                              id={`metadata-created-${item.id}`}
+                              type="date"
+                              value={item.metadata.createdDate}
+                              onChange={(event) =>
+                                updateItemMetadata(
+                                  item.id,
+                                  "createdDate",
+                                  event.target.value,
+                                )
+                              }
+                              disabled={isLocked}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor={`metadata-frequency-${item.id}`}>
+                              Frecuencia de actualización
+                            </Label>
+                            <Input
+                              id={`metadata-frequency-${item.id}`}
+                              value={item.metadata.updateFrequency}
+                              onChange={(event) =>
+                                updateItemMetadata(
+                                  item.id,
+                                  "updateFrequency",
+                                  event.target.value,
+                                )
+                              }
+                              disabled={isLocked}
+                              placeholder="Mensual, anual, eventual"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor={`metadata-encoding-${item.id}`}>
+                            Codificación de variables
+                          </Label>
+                          <Textarea
+                            id={`metadata-encoding-${item.id}`}
+                            value={item.metadata.variableEncoding}
+                            onChange={(event) =>
+                              updateItemMetadata(
+                                item.id,
+                                "variableEncoding",
+                                event.target.value,
+                              )
+                            }
+                            disabled={isLocked}
+                            placeholder="Ej. cod_indec: código censal; dpto: departamento"
+                            className="min-h-20"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor={`metadata-records-${item.id}`}>
+                            Descripción general de los registros
+                          </Label>
+                          <Textarea
+                            id={`metadata-records-${item.id}`}
+                            value={item.metadata.recordDescription}
+                            onChange={(event) =>
+                              updateItemMetadata(
+                                item.id,
+                                "recordDescription",
+                                event.target.value,
+                              )
+                            }
+                            disabled={isLocked}
+                            placeholder="Resumen del contenido y alcance de la capa"
+                            className="min-h-20"
+                          />
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
 
                     {(item.status === "uploading" ||
                       item.status === "processing" ||

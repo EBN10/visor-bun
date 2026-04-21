@@ -36,6 +36,20 @@
       "when": 1774640440039,
       "tag": "0004_old_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776380195654,
+      "tag": "0005_low_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776380327653,
+      "tag": "0006_nasty_queen_noir",
+      "breakpoints": true
     }
   ]
 }
