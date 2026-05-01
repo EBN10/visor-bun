@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "~/server/db";
 import { layerGroups, layers, type LayerMetadata } from "~/server/db/schema";
 import { getAuditActor, writeAuditLog } from "~/server/audit";
@@ -203,12 +203,21 @@ export async function importGeoJsonLayer({
     const actor = await getAuditActor();
 
     await db.transaction(async (tx) => {
+      const [lastSibling] = await tx
+        .select({ order: layers.order })
+        .from(layers)
+        .where(eq(layers.groupId, groupId))
+        .orderBy(desc(layers.order))
+        .limit(1);
+
+      const nextOrder = (lastSibling?.order ?? -1) + 1;
+
       await tx.insert(layers).values({
         id: tableId,
         name: layerName,
         kind: "vector",
         groupId,
-        order: 0,
+        order: nextOrder,
         defaultVisible: true,
         config: {
           type: "vector",

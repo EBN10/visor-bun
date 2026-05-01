@@ -33,6 +33,8 @@ function getLayerIcon(kind?: LayerNodeMeta["kind"]) {
   switch (kind) {
     case "wms":
       return <Globe className="size-4 text-emerald-600" />;
+    case "wfs":
+      return <Layers3 className="size-4 text-violet-600" />;
     case "xyz":
       return <Map className="size-4 text-orange-500" />;
     default:

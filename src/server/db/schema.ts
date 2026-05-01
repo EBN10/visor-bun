@@ -24,7 +24,7 @@ export const cartoCensalSchema = pgSchema("carto_censal");
 // ============================================================================
 // 2. ENUMS
 // ============================================================================
-export const layerKind = pgEnum("layer_kind", ["vector", "xyz", "wms"]);
+export const layerKind = pgEnum("layer_kind", ["vector", "xyz", "wms", "wfs"]);
 
 // ============================================================================
 // 3. TYPES
@@ -79,15 +79,18 @@ export type VectorStyleConfig = {
   dashArray?: string;
 };
 
-export type VectorConfig = LayerDisplayConfig & {
+export type FeatureLayerDisplayConfig = LayerDisplayConfig & {
+  popupProps?: string[];
+  popup?: LayerPopupConfig;
+  style?: VectorStyleConfig;
+};
+
+export type VectorConfig = FeatureLayerDisplayConfig & {
   type: "vector";
   schema: string;
   table: string;
   geomColumn: string;
   srid: number;
-  popupProps?: string[];
-  popup?: LayerPopupConfig;
-  style?: VectorStyleConfig;
 };
 
 export type WmsConfig = LayerDisplayConfig & {
@@ -99,13 +102,27 @@ export type WmsConfig = LayerDisplayConfig & {
   transparent?: boolean;
 };
 
+export type WfsAxisOrder = "auto" | "lonlat" | "latlon";
+
+export type WfsConfig = FeatureLayerDisplayConfig & {
+  type: "wfs";
+  url: string;
+  typeName: string;
+  version?: string;
+  outputFormat?: string;
+  srsName?: string;
+  pageSize?: number;
+  maxFeatures?: number;
+  axisOrder?: WfsAxisOrder;
+};
+
 export type XyzConfig = LayerDisplayConfig & {
   type: "xyz";
   url: string;
   attribution?: string;
 };
 
-export type LayerConfig = VectorConfig | WmsConfig | XyzConfig;
+export type LayerConfig = VectorConfig | WmsConfig | WfsConfig | XyzConfig;
 
 export type AuditLogChange = {
   field: string;

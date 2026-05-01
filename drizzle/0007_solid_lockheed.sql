@@ -1,0 +1,1 @@
+ALTER TYPE "public"."layer_kind" ADD VALUE 'wfs';

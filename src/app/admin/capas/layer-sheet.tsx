@@ -1,28 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchJson, qk } from "~/lib/api";
-import { toast } from "sonner";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "~/components/ui/sheet";
-import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import { Switch } from "~/components/ui/switch";
-import { Textarea } from "~/components/ui/textarea";
-import { Badge } from "~/components/ui/badge";
-import { Separator } from "~/components/ui/separator";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "~/components/ui/collapsible";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
   CheckIcon,
@@ -35,7 +14,26 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
+import { fetchJson, qk } from "~/lib/api";
+import { isFeatureLayerConfig } from "~/lib/layer-config";
+import {
+  WFS_AXIS_ORDER_OPTIONS,
+  WFS_VERSION_OPTIONS,
+} from "~/lib/layer-config";
 import { cn } from "~/lib/utils";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
+import { Switch } from "~/components/ui/switch";
+import { Textarea } from "~/components/ui/textarea";
+import { Badge } from "~/components/ui/badge";
+import { Separator } from "~/components/ui/separator";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "~/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,7 +44,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
-import type { LayerConfig, LayerMetadata } from "~/server/db/schema";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "~/components/ui/sheet";
+import type {
+  LayerConfig,
+  LayerMetadata,
+  WfsAxisOrder,
+} from "~/server/db/schema";
 
 type AdminLayerGroup = {
   id: string;
@@ -57,7 +66,7 @@ type EditableLayer = {
   id: string;
   name: string;
   type?: "group" | "layer";
-  kind?: "vector" | "wms" | "xyz";
+  kind?: "vector" | "wms" | "wfs" | "xyz";
   groupId?: string | null;
   defaultVisible?: boolean;
   config?: LayerConfig;
@@ -78,7 +87,6 @@ type LayerSheetProps = {
   groups: AdminLayerGroup[];
 };
 
-// Custom Select that renders portal at higher z-index for Sheet
 function SheetSelect({
   value,
   onValueChange,
@@ -107,7 +115,7 @@ function SheetSelect({
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           className={cn(
-            "bg-popover text-popover-foreground relative z-[1002] max-h-96 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
+            "bg-popover text-popover-foreground relative z-[1105] max-h-96 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -185,6 +193,39 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function parseOptionalInteger(value: string) {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function parseOptionalNumber(value: string) {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getKindIcon(kind?: EditableLayer["kind"]) {
+  switch (kind) {
+    case "vector":
+      return <Layers className="size-5 text-sky-600" />;
+    case "wms":
+      return <Globe className="size-5 text-emerald-600" />;
+    case "wfs":
+      return <Layers className="size-5 text-violet-600" />;
+    case "xyz":
+      return <Map className="size-5 text-orange-500" />;
+    default:
+      return <Layers className="size-5" />;
+  }
+}
+
 export function LayerSheet({
   open,
   onOpenChange,
@@ -210,50 +251,98 @@ export function LayerSheet({
   const [maxZoom, setMaxZoom] = useState("");
   const [popupTitleProp, setPopupTitleProp] = useState("");
   const [popupSubtitleProp, setPopupSubtitleProp] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [wmsLayersValue, setWmsLayersValue] = useState("");
+  const [wmsVersion, setWmsVersion] = useState("");
+  const [wmsFormat, setWmsFormat] = useState("");
+  const [wmsTransparent, setWmsTransparent] = useState(true);
+  const [xyzAttribution, setXyzAttribution] = useState("");
+  const [wfsTypeName, setWfsTypeName] = useState("");
+  const [wfsVersion, setWfsVersion] = useState("2.0.0");
+  const [wfsOutputFormat, setWfsOutputFormat] = useState("application/json");
+  const [wfsSrsName, setWfsSrsName] = useState("EPSG:4326");
+  const [wfsPageSize, setWfsPageSize] = useState("");
+  const [wfsMaxFeatures, setWfsMaxFeatures] = useState("");
+  const [wfsAxisOrder, setWfsAxisOrder] = useState<WfsAxisOrder>("auto");
   const [newPropValue, setNewPropValue] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   useEffect(() => {
-    if (layer) {
-      const config = layer.config;
-
-      setName(layer.name ?? "");
-      setGroupId(layer.groupId ?? "");
-      setDefaultVisible(layer.defaultVisible ?? false);
-      setMetadataOpen(hasLayerMetadata(config?.metadata));
-      setMetadataOwner(config?.metadata?.owner ?? "");
-      setMetadataCreatedDate(config?.metadata?.createdDate ?? "");
-      setMetadataUpdateFrequency(config?.metadata?.updateFrequency ?? "");
-      setMetadataVariableEncoding(config?.metadata?.variableEncoding ?? "");
-      setMetadataRecordDescription(config?.metadata?.recordDescription ?? "");
-      setPopupProps(config?.type === "vector" ? (config.popupProps ?? []) : []);
-      setAccentColor(
-        config?.type === "vector"
-          ? (config.style?.color ?? config.legend?.color ?? "")
-          : (config?.legend?.color ?? ""),
-      );
-      setOpacity(
-        config?.opacity === undefined || config.opacity === null
-          ? ""
-          : String(config.opacity),
-      );
-      setMinZoom(
-        config?.minZoom === undefined || config.minZoom === null
-          ? ""
-          : String(config.minZoom),
-      );
-      setMaxZoom(
-        config?.maxZoom === undefined || config.maxZoom === null
-          ? ""
-          : String(config.maxZoom),
-      );
-      setPopupTitleProp(
-        config?.type === "vector" ? (config.popup?.titleProp ?? "") : "",
-      );
-      setPopupSubtitleProp(
-        config?.type === "vector" ? (config.popup?.subtitleProp ?? "") : "",
-      );
+    if (!layer?.config) {
+      return;
     }
+
+    const config = layer.config;
+
+    setName(layer.name ?? "");
+    setGroupId(layer.groupId ?? "");
+    setDefaultVisible(layer.defaultVisible ?? false);
+    setMetadataOpen(hasLayerMetadata(config.metadata));
+    setMetadataOwner(config.metadata?.owner ?? "");
+    setMetadataCreatedDate(config.metadata?.createdDate ?? "");
+    setMetadataUpdateFrequency(config.metadata?.updateFrequency ?? "");
+    setMetadataVariableEncoding(config.metadata?.variableEncoding ?? "");
+    setMetadataRecordDescription(config.metadata?.recordDescription ?? "");
+    setPopupProps(
+      isFeatureLayerConfig(config) ? [...(config.popupProps ?? [])] : [],
+    );
+    setAccentColor(
+      isFeatureLayerConfig(config)
+        ? (config.style?.color ?? config.legend?.color ?? "")
+        : (config.legend?.color ?? ""),
+    );
+    setOpacity(
+      config.opacity === undefined || config.opacity === null
+        ? ""
+        : String(config.opacity),
+    );
+    setMinZoom(
+      config.minZoom === undefined || config.minZoom === null
+        ? ""
+        : String(config.minZoom),
+    );
+    setMaxZoom(
+      config.maxZoom === undefined || config.maxZoom === null
+        ? ""
+        : String(config.maxZoom),
+    );
+    setPopupTitleProp(
+      isFeatureLayerConfig(config) ? (config.popup?.titleProp ?? "") : "",
+    );
+    setPopupSubtitleProp(
+      isFeatureLayerConfig(config) ? (config.popup?.subtitleProp ?? "") : "",
+    );
+    setSourceUrl("url" in config ? (config.url ?? "") : "");
+    setWmsLayersValue(config.type === "wms" ? (config.layers ?? "") : "");
+    setWmsVersion(config.type === "wms" ? (config.version ?? "1.3.0") : "");
+    setWmsFormat(config.type === "wms" ? (config.format ?? "image/png") : "");
+    setWmsTransparent(
+      config.type === "wms" ? (config.transparent ?? true) : true,
+    );
+    setXyzAttribution(config.type === "xyz" ? (config.attribution ?? "") : "");
+    setWfsTypeName(config.type === "wfs" ? (config.typeName ?? "") : "");
+    setWfsVersion(
+      config.type === "wfs" ? (config.version ?? "2.0.0") : "2.0.0",
+    );
+    setWfsOutputFormat(
+      config.type === "wfs"
+        ? (config.outputFormat ?? "application/json")
+        : "application/json",
+    );
+    setWfsSrsName(
+      config.type === "wfs" ? (config.srsName ?? "EPSG:4326") : "EPSG:4326",
+    );
+    setWfsPageSize(
+      config.type === "wfs" && config.pageSize ? String(config.pageSize) : "",
+    );
+    setWfsMaxFeatures(
+      config.type === "wfs" && config.maxFeatures
+        ? String(config.maxFeatures)
+        : "",
+    );
+    setWfsAxisOrder(
+      config.type === "wfs" ? (config.axisOrder ?? "auto") : "auto",
+    );
   }, [layer]);
 
   const updateMutation = useMutation({
@@ -295,19 +384,10 @@ export function LayerSheet({
   const handleSave = () => {
     if (!layer?.config) return;
 
-    const parseOptionalNumber = (value: string) => {
-      if (!value.trim()) {
-        return undefined;
-      }
-
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    };
-
-    const config = { ...layer.config };
+    const config = structuredClone(layer.config);
     const nextOpacity = parseOptionalNumber(opacity);
-    const nextMinZoom = parseOptionalNumber(minZoom);
-    const nextMaxZoom = parseOptionalNumber(maxZoom);
+    const nextMinZoom = parseOptionalInteger(minZoom);
+    const nextMaxZoom = parseOptionalInteger(maxZoom);
     const nextMetadata = cleanLayerMetadata({
       owner: metadataOwner,
       createdDate: metadataCreatedDate,
@@ -315,6 +395,15 @@ export function LayerSheet({
       variableEncoding: metadataVariableEncoding,
       recordDescription: metadataRecordDescription,
     });
+
+    if (
+      nextMinZoom !== undefined &&
+      nextMaxZoom !== undefined &&
+      nextMinZoom > nextMaxZoom
+    ) {
+      toast.error("El zoom mínimo no puede ser mayor que el máximo.");
+      return;
+    }
 
     if (nextOpacity === undefined) {
       delete config.opacity;
@@ -340,12 +429,19 @@ export function LayerSheet({
       delete config.metadata;
     }
 
-    if (config.type === "vector") {
-      config.popupProps = popupProps;
-
+    if (isFeatureLayerConfig(config)) {
+      const cleanedPopupProps = Array.from(
+        new Set(popupProps.map((value) => value.trim()).filter(Boolean)),
+      );
       const nextStyle = { ...(config.style ?? {}) };
       const nextPopup = { ...(config.popup ?? {}) };
       const nextLegend = { ...(config.legend ?? {}) };
+
+      if (cleanedPopupProps.length > 0) {
+        config.popupProps = cleanedPopupProps;
+      } else {
+        delete config.popupProps;
+      }
 
       if (accentColor.trim()) {
         nextStyle.color = accentColor.trim();
@@ -386,6 +482,73 @@ export function LayerSheet({
       }
     }
 
+    if (config.type === "wms") {
+      if (!sourceUrl.trim() || !wmsLayersValue.trim()) {
+        toast.error("La URL y las capas WMS son obligatorias.");
+        return;
+      }
+
+      config.url = sourceUrl.trim();
+      config.layers = wmsLayersValue.trim();
+      config.version = wmsVersion.trim() || "1.3.0";
+      config.format = wmsFormat.trim() || "image/png";
+      config.transparent = wmsTransparent;
+    }
+
+    if (config.type === "xyz") {
+      if (!sourceUrl.trim()) {
+        toast.error("La URL XYZ es obligatoria.");
+        return;
+      }
+
+      config.url = sourceUrl.trim();
+
+      if (xyzAttribution.trim()) {
+        config.attribution = xyzAttribution.trim();
+      } else {
+        delete config.attribution;
+      }
+    }
+
+    if (config.type === "wfs") {
+      const nextPageSize = parseOptionalInteger(wfsPageSize);
+      const nextMaxFeatures = parseOptionalInteger(wfsMaxFeatures);
+
+      if (!sourceUrl.trim() || !wfsTypeName.trim()) {
+        toast.error("La URL y el nombre de capa WFS son obligatorios.");
+        return;
+      }
+
+      if (wfsPageSize.trim() && nextPageSize === undefined) {
+        toast.error("El tamaño de página WFS debe ser un entero positivo.");
+        return;
+      }
+
+      if (wfsMaxFeatures.trim() && nextMaxFeatures === undefined) {
+        toast.error("El máximo de entidades WFS debe ser un entero positivo.");
+        return;
+      }
+
+      config.url = sourceUrl.trim();
+      config.typeName = wfsTypeName.trim();
+      config.version = wfsVersion.trim() || "2.0.0";
+      config.outputFormat = wfsOutputFormat.trim() || "application/json";
+      config.srsName = wfsSrsName.trim() || "EPSG:4326";
+      config.axisOrder = wfsAxisOrder;
+
+      if (nextPageSize === undefined) {
+        delete config.pageSize;
+      } else {
+        config.pageSize = nextPageSize;
+      }
+
+      if (nextMaxFeatures === undefined) {
+        delete config.maxFeatures;
+      } else {
+        config.maxFeatures = nextMaxFeatures;
+      }
+    }
+
     updateMutation.mutate({
       id: layer.id,
       name,
@@ -413,25 +576,14 @@ export function LayerSheet({
   };
 
   const updatePopupProp = (index: number, value: string) => {
-    const newProps = [...popupProps];
-    newProps[index] = value;
-    setPopupProps(newProps);
-  };
-
-  const getKindIcon = () => {
-    switch (layer?.kind) {
-      case "vector":
-        return <Layers className="size-5 text-blue-500" />;
-      case "wms":
-        return <Globe className="size-5 text-green-500" />;
-      case "xyz":
-        return <Map className="size-5 text-orange-500" />;
-      default:
-        return <Layers className="size-5" />;
-    }
+    const nextProps = [...popupProps];
+    nextProps[index] = value;
+    setPopupProps(nextProps);
   };
 
   if (!layer?.kind || !layer.config) return null;
+
+  const isFeatureLayer = layer.kind === "vector" || layer.kind === "wfs";
 
   return (
     <>
@@ -439,7 +591,7 @@ export function LayerSheet({
         <SheetContent className="flex w-full flex-col p-0 sm:max-w-md">
           <SheetHeader className="border-b px-4 py-3">
             <div className="flex items-center gap-2">
-              {getKindIcon()}
+              {getKindIcon(layer.kind)}
               <SheetTitle className="text-base">Editar Capa</SheetTitle>
               <Badge variant="outline" className="ml-auto text-xs">
                 {layer.kind}
@@ -451,7 +603,6 @@ export function LayerSheet({
           </SheetHeader>
 
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-            {/* Basic Info */}
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-sm">
                 Nombre
@@ -459,7 +610,7 @@ export function LayerSheet({
               <Input
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(event) => setName(event.target.value)}
                 placeholder="Nombre de la capa"
                 className="h-9"
               />
@@ -472,9 +623,9 @@ export function LayerSheet({
                 onValueChange={setGroupId}
                 placeholder="Seleccionar grupo"
               >
-                {groups.map((g) => (
-                  <SheetSelectItem key={g.id} value={g.id}>
-                    {g.name}
+                {groups.map((group) => (
+                  <SheetSelectItem key={group.id} value={group.id}>
+                    {group.name}
                   </SheetSelectItem>
                 ))}
               </SheetSelect>
@@ -486,7 +637,7 @@ export function LayerSheet({
                   Visible por defecto
                 </Label>
                 <p className="text-muted-foreground text-xs">
-                  Se mostrará al cargar el mapa
+                  Se mostrará al cargar el mapa.
                 </p>
               </div>
               <Switch
@@ -502,13 +653,12 @@ export function LayerSheet({
               <div>
                 <Label className="text-sm">Visualización</Label>
                 <p className="text-muted-foreground text-xs">
-                  Ajustes seguros que impactan el visor sin tocar la fuente de
-                  datos.
+                  Ajustes del visor que no cambian la fuente de datos.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                {layer.kind === "vector" && (
+                {isFeatureLayer && (
                   <div className="space-y-1.5">
                     <Label htmlFor="accent-color" className="text-sm">
                       Color base
@@ -516,7 +666,7 @@ export function LayerSheet({
                     <Input
                       id="accent-color"
                       value={accentColor}
-                      onChange={(e) => setAccentColor(e.target.value)}
+                      onChange={(event) => setAccentColor(event.target.value)}
                       placeholder="#1462cc"
                       className="h-9"
                     />
@@ -534,7 +684,7 @@ export function LayerSheet({
                     max="1"
                     step="0.05"
                     value={opacity}
-                    onChange={(e) => setOpacity(e.target.value)}
+                    onChange={(event) => setOpacity(event.target.value)}
                     placeholder="1"
                     className="h-9"
                   />
@@ -551,7 +701,7 @@ export function LayerSheet({
                     max="22"
                     step="1"
                     value={minZoom}
-                    onChange={(e) => setMinZoom(e.target.value)}
+                    onChange={(event) => setMinZoom(event.target.value)}
                     placeholder="Sin límite"
                     className="h-9"
                   />
@@ -568,7 +718,7 @@ export function LayerSheet({
                     max="22"
                     step="1"
                     value={maxZoom}
-                    onChange={(e) => setMaxZoom(e.target.value)}
+                    onChange={(event) => setMaxZoom(event.target.value)}
                     placeholder="Sin límite"
                     className="h-9"
                   />
@@ -577,6 +727,285 @@ export function LayerSheet({
             </div>
 
             <Separator />
+
+            {layer.config.type === "wms" && (
+              <>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm">Fuente WMS</Label>
+                    <p className="text-muted-foreground text-xs">
+                      Configura el servicio remoto y la capa publicada.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wms-url" className="text-sm">
+                      URL
+                    </Label>
+                    <Input
+                      id="wms-url"
+                      value={sourceUrl}
+                      onChange={(event) => setSourceUrl(event.target.value)}
+                      placeholder="https://servidor/geoserver/wms"
+                      className="h-9"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wms-layers" className="text-sm">
+                      Capas
+                    </Label>
+                    <Input
+                      id="wms-layers"
+                      value={wmsLayersValue}
+                      onChange={(event) =>
+                        setWmsLayersValue(event.target.value)
+                      }
+                      placeholder="workspace:capa"
+                      className="h-9"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wms-version" className="text-sm">
+                        Versión
+                      </Label>
+                      <Input
+                        id="wms-version"
+                        value={wmsVersion}
+                        onChange={(event) => setWmsVersion(event.target.value)}
+                        placeholder="1.3.0"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wms-format" className="text-sm">
+                        Formato
+                      </Label>
+                      <Input
+                        id="wms-format"
+                        value={wmsFormat}
+                        onChange={(event) => setWmsFormat(event.target.value)}
+                        placeholder="image/png"
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <div>
+                      <Label htmlFor="wms-transparent" className="text-sm">
+                        Fondo transparente
+                      </Label>
+                      <p className="text-muted-foreground text-xs">
+                        Recomendado para superponer el servicio sobre el mapa
+                        base.
+                      </p>
+                    </div>
+                    <Switch
+                      id="wms-transparent"
+                      checked={wmsTransparent}
+                      onCheckedChange={setWmsTransparent}
+                    />
+                  </div>
+                </div>
+                <Separator />
+              </>
+            )}
+
+            {layer.config.type === "wfs" && (
+              <>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm">Fuente WFS</Label>
+                    <p className="text-muted-foreground text-xs">
+                      El visor consulta el servicio vía backend y dibuja las
+                      entidades como capa vectorial.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wfs-url" className="text-sm">
+                      URL
+                    </Label>
+                    <Input
+                      id="wfs-url"
+                      value={sourceUrl}
+                      onChange={(event) => setSourceUrl(event.target.value)}
+                      placeholder="https://servidor/geoserver/wfs"
+                      className="h-9"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wfs-type-name" className="text-sm">
+                      Nombre de capa
+                    </Label>
+                    <Input
+                      id="wfs-type-name"
+                      value={wfsTypeName}
+                      onChange={(event) => setWfsTypeName(event.target.value)}
+                      placeholder="workspace:capa"
+                      className="h-9"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm">Versión</Label>
+                      <SheetSelect
+                        value={wfsVersion}
+                        onValueChange={setWfsVersion}
+                        placeholder="Versión"
+                      >
+                        {WFS_VERSION_OPTIONS.map((option) => (
+                          <SheetSelectItem key={option} value={option}>
+                            {option}
+                          </SheetSelectItem>
+                        ))}
+                      </SheetSelect>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-sm">Orden de ejes</Label>
+                      <SheetSelect
+                        value={wfsAxisOrder}
+                        onValueChange={(value) =>
+                          setWfsAxisOrder(value as WfsAxisOrder)
+                        }
+                        placeholder="Orden"
+                      >
+                        {WFS_AXIS_ORDER_OPTIONS.map((option) => (
+                          <SheetSelectItem
+                            key={option.value}
+                            value={option.value}
+                          >
+                            {option.label}
+                          </SheetSelectItem>
+                        ))}
+                      </SheetSelect>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wfs-output-format" className="text-sm">
+                        Output format
+                      </Label>
+                      <Input
+                        id="wfs-output-format"
+                        value={wfsOutputFormat}
+                        onChange={(event) =>
+                          setWfsOutputFormat(event.target.value)
+                        }
+                        placeholder="application/json"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wfs-srs-name" className="text-sm">
+                        SRS
+                      </Label>
+                      <Input
+                        id="wfs-srs-name"
+                        value={wfsSrsName}
+                        onChange={(event) => setWfsSrsName(event.target.value)}
+                        placeholder="EPSG:4326"
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wfs-page-size" className="text-sm">
+                        Tamaño de página
+                      </Label>
+                      <Input
+                        id="wfs-page-size"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={wfsPageSize}
+                        onChange={(event) => setWfsPageSize(event.target.value)}
+                        placeholder="1000"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wfs-max-features" className="text-sm">
+                        Máximo de entidades
+                      </Label>
+                      <Input
+                        id="wfs-max-features"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={wfsMaxFeatures}
+                        onChange={(event) =>
+                          setWfsMaxFeatures(event.target.value)
+                        }
+                        placeholder="5000"
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-muted-foreground text-xs">
+                    Si el servidor sigue el estándar WFS 1.1.0 con `EPSG:4326`,
+                    usa orden de ejes automático o `Lat, Lon`.
+                  </p>
+                </div>
+                <Separator />
+              </>
+            )}
+
+            {layer.config.type === "xyz" && (
+              <>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm">Fuente XYZ</Label>
+                    <p className="text-muted-foreground text-xs">
+                      Define la plantilla de tiles y la atribución pública del
+                      proveedor.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="xyz-url" className="text-sm">
+                      URL
+                    </Label>
+                    <Input
+                      id="xyz-url"
+                      value={sourceUrl}
+                      onChange={(event) => setSourceUrl(event.target.value)}
+                      placeholder="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      className="h-9"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="xyz-attribution" className="text-sm">
+                      Atribución
+                    </Label>
+                    <Textarea
+                      id="xyz-attribution"
+                      value={xyzAttribution}
+                      onChange={(event) =>
+                        setXyzAttribution(event.target.value)
+                      }
+                      placeholder="© OpenStreetMap contributors"
+                      className="min-h-20"
+                    />
+                  </div>
+                </div>
+                <Separator />
+              </>
+            )}
 
             <Collapsible
               open={metadataOpen}
@@ -606,7 +1035,7 @@ export function LayerSheet({
                   <Input
                     id="metadata-owner"
                     value={metadataOwner}
-                    onChange={(e) => setMetadataOwner(e.target.value)}
+                    onChange={(event) => setMetadataOwner(event.target.value)}
                     placeholder="Dirección, organismo o equipo responsable"
                     className="h-9"
                   />
@@ -621,7 +1050,9 @@ export function LayerSheet({
                       id="metadata-created-date"
                       type="date"
                       value={metadataCreatedDate}
-                      onChange={(e) => setMetadataCreatedDate(e.target.value)}
+                      onChange={(event) =>
+                        setMetadataCreatedDate(event.target.value)
+                      }
                       className="h-9"
                     />
                   </div>
@@ -636,8 +1067,8 @@ export function LayerSheet({
                     <Input
                       id="metadata-update-frequency"
                       value={metadataUpdateFrequency}
-                      onChange={(e) =>
-                        setMetadataUpdateFrequency(e.target.value)
+                      onChange={(event) =>
+                        setMetadataUpdateFrequency(event.target.value)
                       }
                       placeholder="Mensual, anual, eventual"
                       className="h-9"
@@ -655,8 +1086,8 @@ export function LayerSheet({
                   <Textarea
                     id="metadata-variable-encoding"
                     value={metadataVariableEncoding}
-                    onChange={(e) =>
-                      setMetadataVariableEncoding(e.target.value)
+                    onChange={(event) =>
+                      setMetadataVariableEncoding(event.target.value)
                     }
                     placeholder="Ej. cod_indec: código censal; dpto: departamento"
                     className="min-h-20"
@@ -673,8 +1104,8 @@ export function LayerSheet({
                   <Textarea
                     id="metadata-record-description"
                     value={metadataRecordDescription}
-                    onChange={(e) =>
-                      setMetadataRecordDescription(e.target.value)
+                    onChange={(event) =>
+                      setMetadataRecordDescription(event.target.value)
                     }
                     placeholder="Resumen del contenido y alcance de la capa"
                     className="min-h-20"
@@ -685,13 +1116,12 @@ export function LayerSheet({
 
             <Separator />
 
-            {/* Popup Props (vector only) */}
-            {layer.kind === "vector" && (
+            {isFeatureLayer && (
               <div className="space-y-3">
                 <div>
-                  <Label className="text-sm">Propiedades del Popup</Label>
+                  <Label className="text-sm">Propiedades del popup</Label>
                   <p className="text-muted-foreground text-xs">
-                    Campos visibles al hacer clic en el mapa
+                    Campos que se mostrarán al hacer clic sobre la entidad.
                   </p>
                 </div>
 
@@ -703,7 +1133,9 @@ export function LayerSheet({
                     <Input
                       id="popup-title"
                       value={popupTitleProp}
-                      onChange={(e) => setPopupTitleProp(e.target.value)}
+                      onChange={(event) =>
+                        setPopupTitleProp(event.target.value)
+                      }
                       placeholder="ej. nombre"
                       className="h-9"
                     />
@@ -716,7 +1148,9 @@ export function LayerSheet({
                     <Input
                       id="popup-subtitle"
                       value={popupSubtitleProp}
-                      onChange={(e) => setPopupSubtitleProp(e.target.value)}
+                      onChange={(event) =>
+                        setPopupSubtitleProp(event.target.value)
+                      }
                       placeholder="ej. dpto"
                       className="h-9"
                     />
@@ -725,10 +1159,15 @@ export function LayerSheet({
 
                 <div className="space-y-2">
                   {popupProps.map((prop, index) => (
-                    <div key={index} className="flex items-center gap-2">
+                    <div
+                      key={`${prop}-${index}`}
+                      className="flex items-center gap-2"
+                    >
                       <Input
                         value={prop}
-                        onChange={(e) => updatePopupProp(index, e.target.value)}
+                        onChange={(event) =>
+                          updatePopupProp(index, event.target.value)
+                        }
                         className="h-8 flex-1 text-sm"
                       />
                       <Button
@@ -747,10 +1186,10 @@ export function LayerSheet({
                     <Input
                       placeholder="Agregar propiedad..."
                       value={newPropValue}
-                      onChange={(e) => setNewPropValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
+                      onChange={(event) => setNewPropValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
                           addPopupProp();
                         }
                       }}
@@ -778,59 +1217,6 @@ export function LayerSheet({
                 <Separator />
               </div>
             )}
-
-            {/* Config Info (read-only) */}
-            <div className="space-y-2">
-              <Label className="text-sm">Configuración Técnica</Label>
-              <div className="bg-muted/30 space-y-1.5 rounded-md border p-3 text-xs">
-                {layer.config.type === "vector" && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Esquema:</span>
-                      <span className="font-mono">{layer.config?.schema}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Tabla:</span>
-                      <span className="font-mono">{layer.config?.table}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Geometría:</span>
-                      <span className="font-mono">
-                        {layer.config?.geomColumn}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">SRID:</span>
-                      <span className="font-mono">{layer.config?.srid}</span>
-                    </div>
-                  </>
-                )}
-                {(layer.config.type === "wms" ||
-                  layer.config.type === "xyz") && (
-                  <>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground flex-shrink-0">
-                        URL:
-                      </span>
-                      <span className="truncate font-mono">
-                        {layer.config?.url}
-                      </span>
-                    </div>
-                    {layer.config.type === "wms" && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Capas:</span>
-                        <span className="font-mono">
-                          {layer.config?.layers}
-                        </span>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Para modificar, reimporta la capa.
-              </p>
-            </div>
           </div>
 
           <div className="bg-muted/30 flex items-center gap-2 border-t px-4 py-3">

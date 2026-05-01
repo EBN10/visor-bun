@@ -1,48 +1,50 @@
-import { NextResponse } from "next/server"
-import { db } from "~/server/db"
-import { layers, type VectorConfig } from "~/server/db/schema"
-import { eq, sql } from "drizzle-orm"
+import { NextResponse } from "next/server";
+import type { FeatureCollection } from "geojson";
+import { db } from "~/server/db";
+import { layers, type VectorConfig, type WfsConfig } from "~/server/db/schema";
+import { eq, sql } from "drizzle-orm";
 import {
   getVectorGeoJsonPrecision,
   getVectorSimplifyTolerance,
-} from "~/lib/map-layer-utils"
+} from "~/lib/map-layer-utils";
+import { fetchWfsFeatureCollection } from "~/server/layers/wfs";
 
-export const dynamic = "force-dynamic"
-export const revalidate = 0
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function parseBbox(
   bbox: string | null,
 ): { minX: number; minY: number; maxX: number; maxY: number } | null {
-  if (!bbox) return null
-  const parts = bbox.split(",").map((n) => Number(n))
-  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return null
-  const [minX, minY, maxX, maxY] = parts as [number, number, number, number]
-  return { minX, minY, maxX, maxY }
+  if (!bbox) return null;
+  const parts = bbox.split(",").map((n) => Number(n));
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return null;
+  const [minX, minY, maxX, maxY] = parts as [number, number, number, number];
+  return { minX, minY, maxX, maxY };
 }
 
 function quoteSqlIdentifier(identifier: string) {
-  return `"${identifier.replaceAll('"', '""')}"`
+  return `"${identifier.replaceAll('"', '""')}"`;
 }
 
 function buildPropertiesSql(config: VectorConfig) {
   const popupProps = (config.popupProps ?? []).filter((prop) =>
     /^[A-Za-z_][A-Za-z0-9_]*$/.test(prop),
-  )
+  );
 
   if (popupProps.length === 0) {
     return sql.raw(
       `jsonb_strip_nulls(to_jsonb(t) - '${config.geomColumn.replaceAll("'", "''")}')`,
-    )
+    );
   }
 
   const propertyEntries = popupProps.flatMap((prop) => [
     `'${prop.replaceAll("'", "''")}'`,
     `t.${quoteSqlIdentifier(prop)}`,
-  ])
+  ]);
 
   return sql.raw(
     `jsonb_strip_nulls(jsonb_build_object(${propertyEntries.join(", ")}))`,
-  )
+  );
 }
 
 function buildSimpleVectorQuery(
@@ -50,11 +52,11 @@ function buildSimpleVectorQuery(
   bbox: { minX: number; minY: number; maxX: number; maxY: number },
   srid: number,
 ) {
-  const propertiesSql = buildPropertiesSql(config)
+  const propertiesSql = buildPropertiesSql(config);
   const tableIdent = sql`${sql.identifier(config.schema)}.${sql.identifier(
     config.table,
-  )}`
-  const geomIdent = sql.identifier(config.geomColumn)
+  )}`;
+  const geomIdent = sql.identifier(config.geomColumn);
 
   return sql<{ geojson: unknown }>`
     with bbox as (
@@ -77,45 +79,26 @@ function buildSimpleVectorQuery(
     ) as geojson
     from ${tableIdent} t
     join bbox on t.${geomIdent} && bbox.g and ST_Intersects(t.${geomIdent}, bbox.g)
-  `
+  `;
 }
 
-export async function GET(
-  req: Request,
-  ctx: { params: Promise<{ id: string }> },
+async function fetchVectorLayerGeoJson(
+  config: VectorConfig,
+  bbox: { minX: number; minY: number; maxX: number; maxY: number },
+  zoom: number,
 ) {
-  const { id } = await ctx.params
-  const { searchParams } = new URL(req.url)
-  const bboxParam = searchParams.get("bbox")
-  const zParam = Number(searchParams.get("z") ?? "0")
-  const bbox = parseBbox(bboxParam)
+  const srid = config.srid ?? 4326;
+  const simplifyTolerance = getVectorSimplifyTolerance(zoom);
+  const decimalPrecision = getVectorGeoJsonPrecision(zoom);
+  const propertiesSql = buildPropertiesSql(config);
+  const simplifyToleranceSql = sql.raw(String(simplifyTolerance));
+  const decimalPrecisionSql = sql.raw(String(decimalPrecision));
+  const tableIdent = sql`${sql.identifier(config.schema)}.${sql.identifier(
+    config.table,
+  )}`;
+  const geomIdent = sql.identifier(config.geomColumn);
 
-  const [layer] = await db
-    .select()
-    .from(layers)
-    .where(eq(layers.id, id))
-    .limit(1)
-
-  if (!layer) return new NextResponse("Layer not found", { status: 404 })
-  if (layer.kind !== "vector")
-    return new NextResponse("Only vector supported here", { status: 400 })
-  if (!bbox) return new NextResponse("Missing bbox", { status: 400 })
-
-  const cfg = layer.config as VectorConfig
-  const srid = cfg.srid ?? 4326
-  const simplifyTolerance = getVectorSimplifyTolerance(zParam)
-  const decimalPrecision = getVectorGeoJsonPrecision(zParam)
-  const propertiesSql = buildPropertiesSql(cfg)
-  const simplifyToleranceSql = sql.raw(String(simplifyTolerance))
-  const decimalPrecisionSql = sql.raw(String(decimalPrecision))
-
-  // Identificadores correctos
-  const tableIdent = sql`${sql.identifier(cfg.schema)}.${sql.identifier(
-    cfg.table,
-  )}`
-  const geomIdent = sql.identifier(cfg.geomColumn)
-
-  const q = sql<{ geojson: unknown }>`
+  const query = sql<{ geojson: unknown }>`
     with bbox as (
       select ST_MakeEnvelope(
         ${bbox.minX}, ${bbox.minY}, ${bbox.maxX}, ${bbox.maxY}, ${srid}
@@ -159,22 +142,89 @@ export async function GET(
       )
     ) as geojson
     from features
-  `
+  `;
 
-  let row: { geojson: unknown } | undefined
+  let row: { geojson: unknown } | undefined;
 
   try {
-    const rs = (await db.execute(q)) as { geojson: unknown }[]
-    row = rs[0]
+    const result = (await db.execute(query)) as { geojson: unknown }[];
+    row = result[0];
   } catch (error) {
-    console.error(`Optimized vector query failed for layer ${id}, using fallback`, error)
-    const fallbackRs = (await db.execute(
-      buildSimpleVectorQuery(cfg, bbox, srid),
-    )) as { geojson: unknown }[]
-    row = fallbackRs[0]
+    console.error("Optimized vector query failed, using fallback", error);
+    const fallback = (await db.execute(
+      buildSimpleVectorQuery(config, bbox, srid),
+    )) as { geojson: unknown }[];
+    row = fallback[0];
   }
 
-  return NextResponse.json(
-    row?.geojson ?? { type: "FeatureCollection", features: [] },
-  )
+  return (row?.geojson ?? {
+    type: "FeatureCollection",
+    features: [],
+  }) as FeatureCollection;
+}
+
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+  const { searchParams } = new URL(req.url);
+  const bboxParam = searchParams.get("bbox");
+  const zParam = Number(searchParams.get("z") ?? "0");
+  const bbox = parseBbox(bboxParam);
+
+  const [layer] = await db
+    .select()
+    .from(layers)
+    .where(eq(layers.id, id))
+    .limit(1);
+
+  if (!layer) {
+    return new NextResponse("Layer not found", { status: 404 });
+  }
+
+  if (!bbox) {
+    return new NextResponse("Missing bbox", { status: 400 });
+  }
+
+  if (layer.kind === "vector") {
+    const geojson = await fetchVectorLayerGeoJson(
+      layer.config as VectorConfig,
+      bbox,
+      zParam,
+    );
+    return NextResponse.json(geojson);
+  }
+
+  if (layer.kind === "wfs") {
+    try {
+      const geojson = await fetchWfsFeatureCollection(
+        layer.config as WfsConfig,
+        {
+          south: bbox.minY,
+          west: bbox.minX,
+          north: bbox.maxY,
+          east: bbox.maxX,
+        },
+        req.signal,
+      );
+
+      return NextResponse.json(geojson);
+    } catch (error) {
+      console.error(`WFS fetch failed for layer ${id}`, error);
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "No se pudo consultar el servicio WFS",
+        },
+        { status: 502 },
+      );
+    }
+  }
+
+  return new NextResponse("Only vector and wfs layers are supported here", {
+    status: 400,
+  });
 }

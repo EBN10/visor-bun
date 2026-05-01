@@ -42,6 +42,7 @@ import { cn } from "~/lib/utils";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { GroupSheet } from "./group-sheet";
+import { LayerCreateSheet } from "./layer-create-sheet";
 import { LayerSheet } from "./layer-sheet";
 
 const ROOT_ID = "__root__";
@@ -57,7 +58,7 @@ interface TreeItemData {
   children?: string[];
   parentId?: string | null;
   order?: number;
-  kind?: "vector" | "wms" | "xyz";
+  kind?: "vector" | "wms" | "wfs" | "xyz";
   groupId?: string;
   defaultVisible?: boolean;
   config?: any;
@@ -419,6 +420,8 @@ function getLayerIcon(kind: string) {
       return <Layers className="size-4 text-blue-500" />;
     case "wms":
       return <Globe className="size-4 text-green-500" />;
+    case "wfs":
+      return <Layers className="size-4 text-violet-500" />;
     case "xyz":
       return <Map className="size-4 text-orange-500" />;
     default:
@@ -709,6 +712,7 @@ export function LayerGroupTree() {
   const queryClient = useQueryClient();
   const [selectedItem, setSelectedItem] = useState<TreeItemData | null>(null);
   const [isLayerSheetOpen, setIsLayerSheetOpen] = useState(false);
+  const [isNewLayerSheetOpen, setIsNewLayerSheetOpen] = useState(false);
   const [isGroupSheetOpen, setIsGroupSheetOpen] = useState(false);
   const [isNewGroupSheetOpen, setIsNewGroupSheetOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -918,6 +922,11 @@ export function LayerGroupTree() {
   const handleNewGroup = useCallback(() => {
     setSelectedItem(null);
     setIsNewGroupSheetOpen(true);
+  }, []);
+
+  const handleNewLayer = useCallback(() => {
+    setSelectedItem(null);
+    setIsNewLayerSheetOpen(true);
   }, []);
 
   const handleDiscardChanges = useCallback(() => {
@@ -1143,14 +1152,20 @@ export function LayerGroupTree() {
         <div>
           <h2 className="text-lg font-semibold">Gestión de Capas y Grupos</h2>
           <p className="text-muted-foreground text-sm">
-            Arrastra para reordenar o suelta una capa sobre un grupo para
-            moverla dentro.
+            Arrastra para reordenar, crea capas de servicio y usa QGIS para
+            importar GeoJSON cuando lo necesites.
           </p>
         </div>
-        <Button onClick={handleNewGroup} size="sm">
-          <Plus className="mr-2 h-4 w-4" />
-          Nuevo Grupo
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleNewLayer} size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva Capa
+          </Button>
+          <Button onClick={handleNewGroup} size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            Nuevo Grupo
+          </Button>
+        </div>
       </div>
 
       <div className="bg-muted/40 min-h-0 flex-1 overflow-auto rounded-lg border">
@@ -1232,16 +1247,24 @@ export function LayerGroupTree() {
       </AnimatePresence>
 
       <p className="text-muted-foreground mt-3 text-xs">
-        💡 Para importar nuevas capas, usa la opción de{" "}
+        Para datos propios en GeoJSON usa la opción de{" "}
         <a href="/admin/qgis" className="text-primary underline">
           Importar desde QGIS
-        </a>
+        </a>{" "}
+        y para servicios remotos crea una capa WMS, WFS o XYZ desde “Nueva
+        Capa”.
       </p>
 
       <LayerSheet
         open={isLayerSheetOpen}
         onOpenChange={setIsLayerSheetOpen}
         layer={selectedItem?.type === "layer" ? selectedItem : null}
+        groups={groupsQuery.data ?? []}
+      />
+
+      <LayerCreateSheet
+        open={isNewLayerSheetOpen}
+        onOpenChange={setIsNewLayerSheetOpen}
         groups={groupsQuery.data ?? []}
       />
 

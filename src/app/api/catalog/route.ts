@@ -1,34 +1,29 @@
-import { NextResponse } from "next/server"
-import { db } from "~/server/db"
-import {
-  layerGroups,
-  layers,
-  type LayerConfig,
-} from "~/server/db/schema"
-
+import { NextResponse } from "next/server";
+import { db } from "~/server/db";
+import { layerGroups, layers, type LayerConfig } from "~/server/db/schema";
 
 type CatalogNode =
   | {
-      id: string
-      type: "group"
-      parentId: string | null
-      name: string
-      order: number
+      id: string;
+      type: "group";
+      parentId: string | null;
+      name: string;
+      order: number;
     }
   | {
-      id: string
-      type: "layer"
-      parentId: string
-      name: string
-      order: number
-      kind: "vector" | "xyz" | "wms"
-      config: LayerConfig
-      defaultVisible: boolean
-    }
+      id: string;
+      type: "layer";
+      parentId: string;
+      name: string;
+      order: number;
+      kind: "vector" | "xyz" | "wms" | "wfs";
+      config: LayerConfig;
+      defaultVisible: boolean;
+    };
 
 export async function GET() {
-  const groups = await db.select().from(layerGroups)
-  const ls = await db.select().from(layers)
+  const groups = await db.select().from(layerGroups);
+  const ls = await db.select().from(layers);
 
   const nodes: CatalogNode[] = [
     ...groups.map((g) => ({
@@ -48,7 +43,7 @@ export async function GET() {
       config: l.config,
       defaultVisible: l.defaultVisible ?? false,
     })),
-  ]
+  ];
 
-  return NextResponse.json({ nodes })
+  return NextResponse.json({ nodes });
 }

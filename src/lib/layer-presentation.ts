@@ -3,6 +3,7 @@ import type {
   LayerBoundsConfig,
   LayerConfig,
   VectorConfig,
+  WfsConfig,
 } from "~/server/db/schema";
 import type { MapBoundsSnapshot } from "~/lib/map-layer-utils";
 
@@ -278,7 +279,7 @@ export function getLayerAccentColor(layerId: string, config?: LayerConfig) {
     return config.legend.color;
   }
 
-  if (config?.type === "vector") {
+  if (config?.type === "vector" || config?.type === "wfs") {
     if (config.style?.color) {
       return config.style.color;
     }
@@ -301,7 +302,7 @@ export function getResolvedVectorStyle({
   state = "default",
 }: {
   layerId: string;
-  config: VectorConfig;
+  config: VectorConfig | WfsConfig;
   feature?: Feature | null;
   zoom: number;
   state?: FeatureVisualState;
@@ -377,7 +378,7 @@ export function getResolvedVectorStyle({
 export function buildPopupHtml(
   layerName: string,
   properties: Record<string, unknown>,
-  config?: VectorConfig,
+  config?: VectorConfig | WfsConfig,
   options?: {
     layerId?: string;
   },

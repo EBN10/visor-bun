@@ -50,6 +50,13 @@
       "when": 1776380327653,
       "tag": "0006_nasty_queen_noir",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777559465736,
+      "tag": "0007_solid_lockheed",
+      "breakpoints": true
     }
   ]
 }

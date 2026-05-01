@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -46,6 +47,7 @@ import type { LayerNodeMeta } from "~/components/layers/provider";
 import type {
   LayerMetadata,
   VectorConfig,
+  WfsConfig,
   WmsConfig,
   XyzConfig,
 } from "~/server/db/schema";
@@ -258,7 +260,7 @@ function MapTelemetry({
   return null;
 }
 
-function VectorLayer({
+function FeatureLayer({
   layerMeta,
   viewport,
 }: {
@@ -266,7 +268,7 @@ function VectorLayer({
   viewport: MapViewportSnapshot;
 }) {
   const map = useMap();
-  const config = layerMeta.config as VectorConfig;
+  const config = layerMeta.config as VectorConfig | WfsConfig;
   const geoJsonLayerRef = useRef<L.GeoJSON | null>(null);
   const selectedLayerRef = useRef<L.Layer | null>(null);
   const selectedFeatureRef = useRef<Feature | null>(null);
@@ -456,7 +458,20 @@ function VectorLayer({
   return null;
 }
 
-function WmsLayer({ order, ...config }: WmsConfig & { order: number }) {
+const WmsLayer = memo(function WmsLayer({
+  order,
+  ...config
+}: WmsConfig & { order: number }) {
+  const params = useMemo(
+    () => ({
+      layers: config.layers,
+      format: config.format ?? "image/png",
+      transparent: config.transparent ?? true,
+      version: config.version ?? "1.3.0",
+    }),
+    [config.format, config.layers, config.transparent, config.version],
+  );
+
   return (
     <WMSTileLayer
       url={config.url}
@@ -464,17 +479,19 @@ function WmsLayer({ order, ...config }: WmsConfig & { order: number }) {
       minZoom={config.minZoom}
       maxZoom={config.maxZoom}
       zIndex={200 + order}
-      params={{
-        layers: config.layers,
-        format: config.format ?? "image/png",
-        transparent: config.transparent ?? true,
-        version: config.version ?? "1.3.0",
-      }}
+      tileSize={512}
+      updateWhenIdle
+      updateWhenZooming={false}
+      keepBuffer={1}
+      params={params}
     />
   );
-}
+});
 
-function XyzLayer({ order, ...config }: XyzConfig & { order: number }) {
+const XyzLayer = memo(function XyzLayer({
+  order,
+  ...config
+}: XyzConfig & { order: number }) {
   return (
     <TileLayer
       url={config.url}
@@ -485,9 +502,9 @@ function XyzLayer({ order, ...config }: XyzConfig & { order: number }) {
       zIndex={200 + order}
     />
   );
-}
+});
 
-function LayerRenderer() {
+const LayerRenderer = memo(function LayerRenderer() {
   const { mapViewport, metas, visibleLayerIds } = useLayers();
 
   const visibleLayers = useMemo(
@@ -514,9 +531,9 @@ function LayerRenderer() {
           return null;
         }
 
-        if (layerMeta.kind === "vector") {
+        if (layerMeta.kind === "vector" || layerMeta.kind === "wfs") {
           return (
-            <VectorLayer
+            <FeatureLayer
               key={layerMeta.id}
               layerMeta={layerMeta}
               viewport={mapViewport}
@@ -548,7 +565,39 @@ function LayerRenderer() {
       })}
     </>
   );
-}
+});
+
+const MapScene = memo(function MapScene({
+  baseMap,
+  onReady,
+  onCursorChange,
+  onZoomChange,
+}: {
+  baseMap: (typeof BASEMAPS)[number];
+  onReady: (map: L.Map | null) => void;
+  onCursorChange: (latlng: LatLng | null) => void;
+  onZoomChange: (zoom: number) => void;
+}) {
+  return (
+    <MapContainer
+      center={MAP_CENTER}
+      zoom={MAP_ZOOM}
+      className="h-full w-full"
+      preferCanvas
+      zoomControl={false}
+    >
+      <TileLayer attribution={baseMap.attribution} url={baseMap.url} />
+      <ViewportSync />
+      <MapTelemetry
+        onReady={onReady}
+        onCursorChange={onCursorChange}
+        onZoomChange={onZoomChange}
+      />
+      <ScaleControl />
+      <LayerRenderer />
+    </MapContainer>
+  );
+});
 
 export default function ClientMap() {
   const { mapViewport, metas, registerMap, visibleLayerIds } = useLayers();
@@ -587,6 +636,30 @@ export default function ClientMap() {
     () => buildMetadataRows(metadataLayer),
     [metadataLayer],
   );
+  const handleMapReady = useCallback(
+    (map: L.Map | null) => {
+      setMapInstance(map);
+      registerMap(map);
+    },
+    [registerMap],
+  );
+  const handleCursorChange = useCallback((latlng: LatLng | null) => {
+    setCursorPosition((current) => {
+      if (!latlng) {
+        return current ? null : current;
+      }
+
+      if (
+        current &&
+        current.lat.toFixed(4) === latlng.lat.toFixed(4) &&
+        current.lng.toFixed(4) === latlng.lng.toFixed(4)
+      ) {
+        return current;
+      }
+
+      return latlng;
+    });
+  }, []);
   const handleShellClick = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
       const target = event.target;
@@ -613,29 +686,12 @@ export default function ClientMap() {
       className="map-shell relative h-full overflow-hidden rounded-[24px]"
       onClickCapture={handleShellClick}
     >
-      <MapContainer
-        center={MAP_CENTER}
-        zoom={MAP_ZOOM}
-        className="h-full w-full"
-        preferCanvas
-        zoomControl={false}
-      >
-        <TileLayer
-          attribution={activeBaseMap.attribution}
-          url={activeBaseMap.url}
-        />
-        <ViewportSync />
-        <MapTelemetry
-          onReady={(map) => {
-            setMapInstance(map);
-            registerMap(map);
-          }}
-          onCursorChange={setCursorPosition}
-          onZoomChange={setCurrentZoom}
-        />
-        <ScaleControl />
-        <LayerRenderer />
-      </MapContainer>
+      <MapScene
+        baseMap={activeBaseMap}
+        onReady={handleMapReady}
+        onCursorChange={handleCursorChange}
+        onZoomChange={setCurrentZoom}
+      />
 
       <div className="pointer-events-none absolute inset-0 z-[500]">
         <div className="absolute top-4 left-4 flex flex-col gap-2">
