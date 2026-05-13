@@ -68,13 +68,24 @@ const LAYER_METADATA_FIELDS: Array<{
   { key: "recordDescription", label: "Descripción general de los registros" },
 ];
 
-const BASEMAPS = [
+type BasemapConfig = {
+  id: string;
+  name: string;
+  url: string;
+  attribution: string;
+  minZoom?: number;
+  maxZoom?: number;
+};
+
+const BASEMAPS: readonly BasemapConfig[] = [
   {
-    id: "carto-voyager",
-    name: "Contexto",
-    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    id: "argenmap",
+    name: "Mapa oficial",
+    url: "https://wms.ign.gob.ar/geoserver/gwc/service/tms/1.0.0/capabaseargenmap@EPSG%3A3857@png/{z}/{x}/{-y}.png",
     attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      '<a href="https://www.ign.gob.ar/AreaServicios/Argenmap/IntroduccionV2" target="_blank" rel="noreferrer">Instituto Geográfico Nacional</a> + <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
+    minZoom: 3,
+    maxZoom: 18,
   },
   {
     id: "esri-imagery",
@@ -235,12 +246,51 @@ function MapTelemetry({
   onCursorChange: (latlng: LatLng | null) => void;
   onZoomChange: (zoom: number) => void;
 }) {
+  const draggingRef = useRef(false);
+  const cursorFrameRef = useRef<number | null>(null);
+  const pendingCursorRef = useRef<LatLng | null>(null);
+
+  const flushCursorPosition = useCallback(() => {
+    cursorFrameRef.current = null;
+    onCursorChange(pendingCursorRef.current);
+  }, [onCursorChange]);
+
   const map = useMapEvents({
     mousemove: (event) => {
-      onCursorChange(event.latlng);
+      if (draggingRef.current) {
+        return;
+      }
+
+      pendingCursorRef.current = event.latlng;
+
+      if (cursorFrameRef.current !== null) {
+        return;
+      }
+
+      cursorFrameRef.current = requestAnimationFrame(flushCursorPosition);
     },
     mouseout: () => {
+      if (cursorFrameRef.current !== null) {
+        cancelAnimationFrame(cursorFrameRef.current);
+        cursorFrameRef.current = null;
+      }
+
+      pendingCursorRef.current = null;
       onCursorChange(null);
+    },
+    dragstart: () => {
+      draggingRef.current = true;
+      pendingCursorRef.current = null;
+
+      if (cursorFrameRef.current !== null) {
+        cancelAnimationFrame(cursorFrameRef.current);
+        cursorFrameRef.current = null;
+      }
+
+      onCursorChange(null);
+    },
+    dragend: () => {
+      draggingRef.current = false;
     },
     zoomend: () => {
       onZoomChange(map.getZoom());
@@ -253,6 +303,10 @@ function MapTelemetry({
     map.invalidateSize();
 
     return () => {
+      if (cursorFrameRef.current !== null) {
+        cancelAnimationFrame(cursorFrameRef.current);
+      }
+
       onReady(null);
     };
   }, [map, onReady, onZoomChange]);
@@ -586,7 +640,12 @@ const MapScene = memo(function MapScene({
       preferCanvas
       zoomControl={false}
     >
-      <TileLayer attribution={baseMap.attribution} url={baseMap.url} />
+      <TileLayer
+        attribution={baseMap.attribution}
+        url={baseMap.url}
+        minZoom={baseMap.minZoom}
+        maxZoom={baseMap.maxZoom}
+      />
       <ViewportSync />
       <MapTelemetry
         onReady={onReady}
@@ -602,7 +661,7 @@ const MapScene = memo(function MapScene({
 export default function ClientMap() {
   const { mapViewport, metas, registerMap, visibleLayerIds } = useLayers();
   const [baseMapId] =
-    useState<(typeof BASEMAPS)[number]["id"]>("carto-voyager");
+    useState<(typeof BASEMAPS)[number]["id"]>("argenmap");
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
   const [cursorPosition, setCursorPosition] = useState<LatLng | null>(null);
   const [currentZoom, setCurrentZoom] = useState(MAP_ZOOM);
