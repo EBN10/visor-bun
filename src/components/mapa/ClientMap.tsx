@@ -77,23 +77,25 @@ type BasemapConfig = {
   maxZoom?: number;
 };
 
-const BASEMAPS: readonly BasemapConfig[] = [
-  {
-    id: "argenmap",
-    name: "Mapa oficial",
-    url: "https://wms.ign.gob.ar/geoserver/gwc/service/tms/1.0.0/capabaseargenmap@EPSG%3A3857@png/{z}/{x}/{-y}.png",
-    attribution:
-      '<a href="https://www.ign.gob.ar/AreaServicios/Argenmap/IntroduccionV2" target="_blank" rel="noreferrer">Instituto Geográfico Nacional</a> + <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
-    minZoom: 3,
-    maxZoom: 18,
-  },
+const DEFAULT_BASEMAP: BasemapConfig = {
+  id: "argenmap",
+  name: "Mapa oficial",
+  url: "https://wms.ign.gob.ar/geoserver/gwc/service/tms/1.0.0/capabaseargenmap@EPSG%3A3857@png/{z}/{x}/{-y}.png",
+  attribution:
+    '<a href="https://www.ign.gob.ar/AreaServicios/Argenmap/IntroduccionV2" target="_blank" rel="noreferrer">Instituto Geográfico Nacional</a> + <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
+  minZoom: 3,
+  maxZoom: 18,
+};
+
+const BASEMAPS: readonly [BasemapConfig, ...BasemapConfig[]] = [
+  DEFAULT_BASEMAP,
   {
     id: "esri-imagery",
     name: "Satélite",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution: "Tiles &copy; Esri",
   },
-] as const;
+];
 
 function toLeafletSnapshot(bounds: L.LatLngBounds): MapBoundsSnapshot {
   const southWest = bounds.getSouthWest();
@@ -668,7 +670,7 @@ export default function ClientMap() {
   const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
 
   const activeBaseMap =
-    BASEMAPS.find((baseMap) => baseMap.id === baseMapId) ?? BASEMAPS[0];
+    BASEMAPS.find((baseMap) => baseMap.id === baseMapId) ?? DEFAULT_BASEMAP;
   const activeLayersCount = visibleLayerIds.size;
   const outOfRangeCount = useMemo(() => {
     if (!mapViewport) {
