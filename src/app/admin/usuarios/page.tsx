@@ -36,6 +36,12 @@ interface Invitation {
   role: string
 }
 
+interface InviteConflict {
+  emailAddress: string
+  role: "admin" | "editor"
+  existingInvitation: Invitation
+}
+
 export default function UsuariosPage() {
   const queryClient = useQueryClient()
   const [users, setUsers] = useState<User[]>([])
@@ -43,9 +49,11 @@ export default function UsuariosPage() {
   const [isLoadingUsers, setIsLoadingUsers] = useState(true)
   const [isLoadingInvitations, setIsLoadingInvitations] = useState(true)
   const [isInviting, setIsInviting] = useState(false)
+  const [resendingInvitationId, setResendingInvitationId] = useState<string | null>(null)
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<"admin" | "editor">("editor")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [inviteConflict, setInviteConflict] = useState<InviteConflict | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [currentUserRole, setCurrentUserRole] = useState<string>("editor")
   
@@ -105,29 +113,64 @@ export default function UsuariosPage() {
     fetchInvitations()
   }, [])
 
-  const handleInvite = async () => {
+  const sendInvitation = async (
+    emailAddress: string,
+    role: "admin" | "editor",
+    options?: { forceResend?: boolean },
+  ) => {
+    const response = await fetch("/api/admin/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        emailAddress,
+        role,
+        forceResend: options?.forceResend ?? false,
+      }),
+    })
+
+    const data = await response.json()
+
+    return { response, data }
+  }
+
+  const handleInvite = async (forceResend = false) => {
     if (!inviteEmail) {
       toast.error("Ingrese un correo electrónico")
       return
     }
 
+    const normalizedEmail = inviteEmail.trim().toLowerCase()
     setIsInviting(true)
     try {
-      const response = await fetch("/api/admin/invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailAddress: inviteEmail, role: inviteRole }),
+      const { response, data } = await sendInvitation(normalizedEmail, inviteRole, {
+        forceResend,
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
+        if (
+          response.status === 409 &&
+          data.canResend &&
+          data.existingInvitation
+        ) {
+          setInviteConflict({
+            emailAddress: normalizedEmail,
+            role: inviteRole,
+            existingInvitation: data.existingInvitation as Invitation,
+          })
+          return
+        }
+
         throw new Error(data.error || "Error al enviar invitación")
       }
 
-      toast.success(`Invitación enviada a ${inviteEmail} como ${inviteRole === "admin" ? "Administrador" : "Editor"}`)
+      toast.success(
+        forceResend
+          ? `Invitación reenviada a ${normalizedEmail} como ${inviteRole === "admin" ? "Administrador" : "Editor"}`
+          : `Invitación enviada a ${normalizedEmail} como ${inviteRole === "admin" ? "Administrador" : "Editor"}`,
+      )
       setInviteEmail("")
       setInviteRole("editor")
+      setInviteConflict(null)
       setDialogOpen(false)
       queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
       fetchInvitations()
@@ -135,6 +178,31 @@ export default function UsuariosPage() {
       toast.error(error instanceof Error ? error.message : "Error al enviar invitación")
     } finally {
       setIsInviting(false)
+    }
+  }
+
+  const handleResendInvitation = async (invitation: Invitation) => {
+    setResendingInvitationId(invitation.id)
+    try {
+      const { response, data } = await sendInvitation(
+        invitation.emailAddress,
+        invitation.role as "admin" | "editor",
+        { forceResend: true },
+      )
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error al reenviar invitación")
+      }
+
+      toast.success(`Invitación reenviada a ${invitation.emailAddress}`)
+      queryClient.invalidateQueries({ queryKey: ["admin", "activity"] })
+      fetchInvitations()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Error al reenviar invitación",
+      )
+    } finally {
+      setResendingInvitationId(null)
     }
   }
 
@@ -254,6 +322,9 @@ export default function UsuariosPage() {
     }
   }
 
+  const canResendInvitation = (status: string) =>
+    status === "expired" || status === "revoked"
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -264,7 +335,15 @@ export default function UsuariosPage() {
           </p>
         </div>
         {isAdmin && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open)
+              if (!open) {
+                setInviteConflict(null)
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button>
                 <UserPlus className="mr-2 h-4 w-4" />
@@ -286,17 +365,26 @@ export default function UsuariosPage() {
                     type="email"
                     placeholder="usuario@ejemplo.com"
                     value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
+                    onChange={(e) => {
+                      setInviteEmail(e.target.value)
+                      setInviteConflict(null)
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !isInviting) {
-                        handleInvite()
+                        handleInvite(Boolean(inviteConflict))
                       }
                     }}
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="role">Rol</Label>
-                  <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "admin" | "editor")}>
+                  <Select
+                    value={inviteRole}
+                    onValueChange={(v) => {
+                      setInviteRole(v as "admin" | "editor")
+                      setInviteConflict(null)
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -322,21 +410,34 @@ export default function UsuariosPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {inviteConflict && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Ya existía una invitación {inviteConflict.existingInvitation.status === "expired" ? "expirada" : "previa"} para{" "}
+                    <strong>{inviteConflict.emailAddress}</strong>. Si querés, podés reenviarla de todas formas.
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button onClick={handleInvite} disabled={isInviting}>
+                <Button
+                  onClick={() => handleInvite(Boolean(inviteConflict))}
+                  disabled={isInviting}
+                >
                   {isInviting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Enviando...
+                      {inviteConflict ? "Reenviando..." : "Enviando..."}
                     </>
                   ) : (
                     <>
-                      <Send className="mr-2 h-4 w-4" />
-                      Enviar Invitación
+                      {inviteConflict ? (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      {inviteConflict ? "Reenviar de todas formas" : "Enviar Invitación"}
                     </>
                   )}
                 </Button>
@@ -485,6 +586,7 @@ export default function UsuariosPage() {
                       <TableHead>Rol</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead>Enviada</TableHead>
+                      {isAdmin && <TableHead className="w-[140px]">Acciones</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -494,6 +596,27 @@ export default function UsuariosPage() {
                         <TableCell>{getRoleBadge(invitation.role)}</TableCell>
                         <TableCell>{getStatusBadge(invitation.status)}</TableCell>
                         <TableCell>{formatDateShort(invitation.createdAt)}</TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            {canResendInvitation(invitation.status) ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleResendInvitation(invitation)}
+                                disabled={resendingInvitationId === invitation.id}
+                              >
+                                {resendingInvitationId === invitation.id ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                )}
+                                Reenviar
+                              </Button>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>

@@ -4,6 +4,22 @@ import { NextResponse } from "next/server";
 import { getAuditActor, writeAuditLog } from "~/server/audit";
 import { db } from "~/server/db";
 
+function serializeInvitation(invitation: {
+  id: string;
+  emailAddress: string;
+  status: string;
+  createdAt: number;
+  publicMetadata?: Record<string, unknown> | null;
+}) {
+  return {
+    id: invitation.id,
+    emailAddress: invitation.emailAddress,
+    status: invitation.status,
+    createdAt: invitation.createdAt,
+    role: (invitation.publicMetadata?.role as string) ?? "editor",
+  };
+}
+
 export async function GET() {
   const { userId } = await auth();
   
@@ -18,13 +34,7 @@ export async function GET() {
     });
 
     return NextResponse.json({ 
-      invitations: invitations.data.map((inv) => ({
-        id: inv.id,
-        emailAddress: inv.emailAddress,
-        status: inv.status,
-        createdAt: inv.createdAt,
-        role: (inv.publicMetadata?.role as string) ?? "editor",
-      }))
+      invitations: invitations.data.map(serializeInvitation)
     });
   } catch (error) {
     console.error("Error fetching invitations:", error);
@@ -57,7 +67,11 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { emailAddress, role = "editor" } = body;
+    const { emailAddress, role = "editor", forceResend = false } = body as {
+      emailAddress?: string;
+      role?: string;
+      forceResend?: boolean;
+    };
 
     if (!emailAddress) {
       return NextResponse.json(
@@ -105,6 +119,9 @@ export async function POST(request: Request) {
     const matchingInvitations = existingInvitations.data.filter(
       (invitation) => invitation.emailAddress.toLowerCase() === normalizedEmail
     );
+    const latestMatchingInvitation = matchingInvitations
+      .slice()
+      .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0))[0];
 
     const hasPendingInvitation = matchingInvitations.some(
       (invitation) => invitation.status === "pending"
@@ -117,10 +134,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // Allow re-inviting when only historical invitations exist
+    if (!forceResend && latestMatchingInvitation) {
+      return NextResponse.json(
+        {
+          error: "Ya existe una invitación previa para este email",
+          canResend: true,
+          existingInvitation: serializeInvitation(latestMatchingInvitation),
+        },
+        { status: 409 }
+      );
+    }
+
     const invitation = await client.invitations.createInvitation({
       emailAddress: normalizedEmail,
-      ignoreExisting: matchingInvitations.length > 0,
+      ignoreExisting: true,
       publicMetadata: { role },
     });
 
@@ -128,15 +155,19 @@ export async function POST(request: Request) {
     try {
       await writeAuditLog(db, {
         actor,
-        action: "invite",
+        action: forceResend ? "invite_resend" : "invite",
         resourceType: "invitation",
         resourceId: invitation.id,
         resourceLabel: invitation.emailAddress,
-        summary: `Invitó a "${invitation.emailAddress}" como ${role}`,
+        summary: forceResend
+          ? `Reenvió la invitación a "${invitation.emailAddress}" como ${role}`
+          : `Invitó a "${invitation.emailAddress}" como ${role}`,
         details: {
           metadata: {
             role,
             status: invitation.status,
+            resentFromInvitationId: latestMatchingInvitation?.id ?? null,
+            previousStatus: latestMatchingInvitation?.status ?? null,
           },
         },
       });
@@ -146,12 +177,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ 
       success: true, 
-      invitation: {
-        id: invitation.id,
-        emailAddress: invitation.emailAddress,
-        status: invitation.status,
-        role,
-      }
+      invitation: serializeInvitation(invitation),
     });
   } catch (error: unknown) {
     console.error("Error creating invitation:", error);

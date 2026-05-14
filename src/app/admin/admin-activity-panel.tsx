@@ -67,6 +67,7 @@ const actionLabels: Record<string, string> = {
   move: "Movimiento",
   import: "Importación",
   invite: "Invitación",
+  invite_resend: "Reenvío",
 }
 
 const resourceLabels: Record<string, string> = {

@@ -20,7 +20,14 @@ import {
   useMapEvents,
   WMSTileLayer,
 } from "react-leaflet";
-import { Minus, Navigation, Plus, RotateCcw } from "lucide-react";
+import {
+  AlertCircle,
+  LoaderCircle,
+  Minus,
+  Navigation,
+  Plus,
+  RotateCcw,
+} from "lucide-react";
 import { useLayers } from "~/components/layers/provider";
 import { Button } from "~/components/ui/button";
 import {
@@ -30,7 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { fetchJson, qk } from "~/lib/api";
+import { fetchJson, fetchJsonWithProgress, qk } from "~/lib/api";
 import {
   buildPopupHtml,
   getResolvedVectorStyle,
@@ -75,6 +82,15 @@ type BasemapConfig = {
   attribution: string;
   minZoom?: number;
   maxZoom?: number;
+};
+
+type WfsLoadState = {
+  layerName: string;
+  status: "loading" | "error";
+  progress: number | null;
+  loadedBytes: number;
+  totalBytes: number | null;
+  errorMessage?: string;
 };
 
 const DEFAULT_BASEMAP: BasemapConfig = {
@@ -166,6 +182,42 @@ function buildMetadataRows(layer: LayerNodeMeta | null | undefined) {
     ...field,
     value: getMetadataValue(metadata, field.key),
   }));
+}
+
+function formatTransferSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getWfsProgressLabel(state: WfsLoadState) {
+  if (state.status === "error") {
+    return "Error";
+  }
+
+  if (state.progress !== null) {
+    return `${Math.round(state.progress * 100)}%`;
+  }
+
+  if (state.loadedBytes > 0) {
+    return formatTransferSize(state.loadedBytes);
+  }
+
+  return "Cargando...";
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException
+      ? error.name === "AbortError"
+      : error instanceof Error && error.name === "AbortError"
+  );
 }
 
 function ScaleControl() {
@@ -319,9 +371,11 @@ function MapTelemetry({
 function FeatureLayer({
   layerMeta,
   viewport,
+  onWfsLoadStateChange,
 }: {
   layerMeta: LayerNodeMeta;
   viewport: MapViewportSnapshot;
+  onWfsLoadStateChange?: (layerId: string, state: WfsLoadState | null) => void;
 }) {
   const map = useMap();
   const config = layerMeta.config as VectorConfig | WfsConfig;
@@ -331,6 +385,10 @@ function FeatureLayer({
   const configRef = useRef(config);
   const layerNameRef = useRef(layerMeta.name);
   const viewportZoomRef = useRef(viewport.zoom);
+  const requestSequenceRef = useRef(0);
+  const activeRequestIdRef = useRef(0);
+  const renderedRequestIdRef = useRef(0);
+  const lastRequestOutcomeRef = useRef<"success" | "error" | null>(null);
   const [requestViewport, setRequestViewport] =
     useState<MapViewportSnapshot>(viewport);
   const queryViewport = useMemo(
@@ -363,20 +421,92 @@ function FeatureLayer({
       queryViewport.bbox,
       queryViewport.zoom,
     ),
-    queryFn: ({ signal }) =>
-      fetchJson<FeatureCollection>(
-        buildVectorLayerUrl(
-          layerMeta.id,
-          queryViewport.bbox,
-          queryViewport.zoom,
-        ),
+    queryFn: ({ signal }) => {
+      const layerUrl = buildVectorLayerUrl(
+        layerMeta.id,
+        queryViewport.bbox,
+        queryViewport.zoom,
+      );
+
+      if (layerMeta.kind !== "wfs") {
+        return fetchJson<FeatureCollection>(layerUrl, { signal });
+      }
+
+      const requestId = ++requestSequenceRef.current;
+      activeRequestIdRef.current = requestId;
+      lastRequestOutcomeRef.current = null;
+
+      onWfsLoadStateChange?.(layerMeta.id, {
+        layerName: layerMeta.name,
+        status: "loading",
+        progress: null,
+        loadedBytes: 0,
+        totalBytes: null,
+      });
+
+      return fetchJsonWithProgress<FeatureCollection>(
+        layerUrl,
+        (progress) => {
+          if (activeRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          onWfsLoadStateChange?.(layerMeta.id, {
+            layerName: layerMeta.name,
+            status: "loading",
+            progress: progress.progress,
+            loadedBytes: progress.loadedBytes,
+            totalBytes: progress.totalBytes,
+          });
+        },
         { signal },
-      ),
+      )
+        .then((result) => {
+          if (activeRequestIdRef.current === requestId) {
+            lastRequestOutcomeRef.current = "success";
+          }
+
+          return result;
+        })
+        .catch((error: unknown) => {
+          if (signal.aborted || isAbortError(error)) {
+            throw error;
+          }
+
+          if (activeRequestIdRef.current === requestId) {
+            lastRequestOutcomeRef.current = "error";
+            onWfsLoadStateChange?.(layerMeta.id, {
+              layerName: layerMeta.name,
+              status: "error",
+              progress: null,
+              loadedBytes: 0,
+              totalBytes: null,
+              errorMessage:
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo cargar la capa WFS",
+            });
+          }
+
+          return {
+            type: "FeatureCollection",
+            features: [],
+          } satisfies FeatureCollection;
+        });
+    },
     staleTime: VECTOR_LAYER_STALE_TIME,
     gcTime: VECTOR_LAYER_GC_TIME,
     placeholderData: (previous) => previous,
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    return () => {
+      if (layerMeta.kind === "wfs") {
+        onWfsLoadStateChange?.(layerMeta.id, null);
+      }
+    };
+  }, [layerMeta.id, layerMeta.kind, onWfsLoadStateChange]);
 
   const getFeatureStyle = useCallback(
     (
@@ -494,7 +624,17 @@ function FeatureLayer({
     selectedFeatureRef.current = null;
     geoJsonLayer.clearLayers();
     geoJsonLayer.addData(data as GeoJsonObject);
-  }, [data]);
+
+    if (
+      layerMeta.kind === "wfs" &&
+      onWfsLoadStateChange &&
+      lastRequestOutcomeRef.current === "success" &&
+      renderedRequestIdRef.current !== activeRequestIdRef.current
+    ) {
+      renderedRequestIdRef.current = activeRequestIdRef.current;
+      onWfsLoadStateChange(layerMeta.id, null);
+    }
+  }, [data, layerMeta.id, layerMeta.kind, onWfsLoadStateChange]);
 
   useEffect(() => {
     const geoJsonLayer = geoJsonLayerRef.current;
@@ -560,7 +700,11 @@ const XyzLayer = memo(function XyzLayer({
   );
 });
 
-const LayerRenderer = memo(function LayerRenderer() {
+const LayerRenderer = memo(function LayerRenderer({
+  onWfsLoadStateChange,
+}: {
+  onWfsLoadStateChange?: (layerId: string, state: WfsLoadState | null) => void;
+}) {
   const { mapViewport, metas, visibleLayerIds } = useLayers();
 
   const visibleLayers = useMemo(
@@ -593,6 +737,9 @@ const LayerRenderer = memo(function LayerRenderer() {
               key={layerMeta.id}
               layerMeta={layerMeta}
               viewport={mapViewport}
+              onWfsLoadStateChange={
+                layerMeta.kind === "wfs" ? onWfsLoadStateChange : undefined
+              }
             />
           );
         }
@@ -628,11 +775,13 @@ const MapScene = memo(function MapScene({
   onReady,
   onCursorChange,
   onZoomChange,
+  onWfsLoadStateChange,
 }: {
   baseMap: (typeof BASEMAPS)[number];
   onReady: (map: L.Map | null) => void;
   onCursorChange: (latlng: LatLng | null) => void;
   onZoomChange: (zoom: number) => void;
+  onWfsLoadStateChange?: (layerId: string, state: WfsLoadState | null) => void;
 }) {
   return (
     <MapContainer
@@ -655,7 +804,7 @@ const MapScene = memo(function MapScene({
         onZoomChange={onZoomChange}
       />
       <ScaleControl />
-      <LayerRenderer />
+      <LayerRenderer onWfsLoadStateChange={onWfsLoadStateChange} />
     </MapContainer>
   );
 });
@@ -668,6 +817,9 @@ export default function ClientMap() {
   const [cursorPosition, setCursorPosition] = useState<LatLng | null>(null);
   const [currentZoom, setCurrentZoom] = useState(MAP_ZOOM);
   const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
+  const [wfsLoadingStates, setWfsLoadingStates] = useState<
+    Record<string, WfsLoadState>
+  >({});
 
   const activeBaseMap =
     BASEMAPS.find((baseMap) => baseMap.id === baseMapId) ?? DEFAULT_BASEMAP;
@@ -697,12 +849,67 @@ export default function ClientMap() {
     () => buildMetadataRows(metadataLayer),
     [metadataLayer],
   );
+  const wfsLoadingLayers = useMemo(
+    () =>
+      Object.entries(wfsLoadingStates)
+        .filter(([layerId]) => visibleLayerIds.has(layerId))
+        .map(([layerId, state]) => ({
+          layerId,
+          order: metas[layerId]?.order ?? Number.MAX_SAFE_INTEGER,
+          ...state,
+        }))
+        .sort((a, b) => a.order - b.order),
+    [metas, visibleLayerIds, wfsLoadingStates],
+  );
+  const wfsErrorCount = useMemo(
+    () => wfsLoadingLayers.filter((layer) => layer.status === "error").length,
+    [wfsLoadingLayers],
+  );
+  const wfsPendingCount = useMemo(
+    () => wfsLoadingLayers.filter((layer) => layer.status === "loading").length,
+    [wfsLoadingLayers],
+  );
   const handleMapReady = useCallback(
     (map: L.Map | null) => {
       setMapInstance(map);
       registerMap(map);
     },
     [registerMap],
+  );
+  const handleWfsLoadStateChange = useCallback(
+    (layerId: string, state: WfsLoadState | null) => {
+      setWfsLoadingStates((current) => {
+        if (!state) {
+          if (!(layerId in current)) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[layerId];
+          return next;
+        }
+
+        const previous = current[layerId];
+
+        if (
+          previous &&
+          previous.layerName === state.layerName &&
+          previous.status === state.status &&
+          previous.progress === state.progress &&
+          previous.loadedBytes === state.loadedBytes &&
+          previous.totalBytes === state.totalBytes &&
+          previous.errorMessage === state.errorMessage
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [layerId]: state,
+        };
+      });
+    },
+    [],
   );
   const handleCursorChange = useCallback((latlng: LatLng | null) => {
     setCursorPosition((current) => {
@@ -752,6 +959,7 @@ export default function ClientMap() {
         onReady={handleMapReady}
         onCursorChange={handleCursorChange}
         onZoomChange={setCurrentZoom}
+        onWfsLoadStateChange={handleWfsLoadStateChange}
       />
 
       <div className="pointer-events-none absolute inset-0 z-[500]">
@@ -766,6 +974,88 @@ export default function ClientMap() {
             <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/95 px-3 py-1.5 text-xs font-medium text-amber-800 shadow-lg shadow-amber-200/30 backdrop-blur dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-200">
               <Navigation className="size-3.5" />
               {outOfRangeCount} fuera de escala
+            </div>
+          )}
+
+          {wfsLoadingLayers.length > 0 && (
+            <div
+              aria-live="polite"
+              className={`pointer-events-auto min-w-[15rem] max-w-[20rem] rounded-2xl p-3 text-xs shadow-lg backdrop-blur ${
+                wfsErrorCount > 0
+                  ? "border border-rose-200 bg-white/92 text-rose-950 shadow-rose-200/40 dark:border-rose-900 dark:bg-slate-950/85 dark:text-rose-100"
+                  : "border border-sky-200 bg-white/92 text-sky-950 shadow-sky-200/40 dark:border-sky-900 dark:bg-slate-950/85 dark:text-sky-100"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-medium">
+                {wfsErrorCount > 0 ? (
+                  <AlertCircle className="size-3.5" />
+                ) : (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                )}
+                {wfsErrorCount > 0
+                  ? wfsPendingCount > 0
+                    ? `WFS con errores (${wfsPendingCount} cargando)`
+                    : "Error al cargar capa WFS"
+                  : wfsLoadingLayers.length === 1
+                    ? "Cargando capa WFS"
+                    : `Cargando ${wfsLoadingLayers.length} capas WFS`}
+              </div>
+              <div className="mt-2 space-y-2">
+                {wfsLoadingLayers.map((layer) => {
+                  const progressWidth =
+                    layer.status === "error"
+                      ? "100%"
+                      : layer.progress !== null
+                      ? `${Math.max(8, Math.round(layer.progress * 100))}%`
+                      : layer.loadedBytes > 0
+                        ? "40%"
+                        : "22%";
+
+                  return (
+                    <div key={layer.layerId} className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate font-medium">
+                          {layer.layerName}
+                        </span>
+                        <span
+                          className={`shrink-0 text-[11px] ${
+                            layer.status === "error"
+                              ? "text-rose-700 dark:text-rose-300"
+                              : "text-sky-700 dark:text-sky-300"
+                          }`}
+                        >
+                          {getWfsProgressLabel(layer)}
+                        </span>
+                      </div>
+                      <div
+                        className={`h-1.5 overflow-hidden rounded-full ${
+                          layer.status === "error"
+                            ? "bg-rose-100 dark:bg-rose-950/70"
+                            : "bg-sky-100 dark:bg-sky-950"
+                        }`}
+                      >
+                        <div
+                          className={`h-full rounded-full transition-[width] duration-200 ${
+                            layer.status === "error"
+                              ? "bg-rose-500"
+                              : "bg-sky-500"
+                          } ${
+                            layer.status === "loading" && layer.progress === null
+                              ? "animate-pulse"
+                              : ""
+                          }`}
+                          style={{ width: progressWidth }}
+                        />
+                      </div>
+                      {layer.status === "error" && layer.errorMessage && (
+                        <p className="line-clamp-2 text-[11px] text-rose-800 dark:text-rose-200">
+                          {layer.errorMessage}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
